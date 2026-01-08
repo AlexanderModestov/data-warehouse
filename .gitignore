@@ -1,0 +1,20 @@
+# Secrets and credentials
+.env
+secret.txt
+
+# Python virtual environment
+.venv/
+
+# Python cache
+__pycache__/
+*/__pycache__/
+*.pyc
+
+# Meltano local state (using Postgres on Heroku)
+reluvia/.meltano/
+reluvia/output/
+
+# dbt artifacts (regenerated on each run)
+dbt/target/
+dbt/logs/
+dbt/dbt_packages/

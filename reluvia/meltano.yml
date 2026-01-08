@@ -1,0 +1,70 @@
+default_environment: dev
+project_id: 019b8f3e-012a-7acd-916d-eae5cf93ef4b
+environments:
+- name: dev
+- name: staging
+- name: prod
+plugins:
+  extractors:
+  - name: tap-stripe
+    variant: singer-io
+    pip_url: git+https://github.com/singer-io/tap-stripe.git
+    config:
+      account_id: ${STRIPE_ACCOUNT_ID}
+      client_secret: ${STRIPE_API_KEY}
+      start_date: '2024-01-01T00:00:00Z'
+  - name: tap-amplitude
+    variant: airbyte
+    namespace: tap_amplitude
+    pip_url: git+https://github.com/MeltanoLabs/tap-airbyte-wrapper.git
+    executable: tap-airbyte
+    config:
+      airbyte_spec:
+        image: airbyte/source-amplitude
+        tag: latest
+      airbyte_config:
+        api_key: ${AMPLITUDE_API_KEY}
+        secret_key: ${AMPLITUDE_SECRET_KEY}
+        start_date: '2025-07-01T00:00:00Z'
+        data_region: Standard Server
+  - name: tap-appsflyer
+    variant: singer-io
+    pip_url: tap-appsflyer
+  - name: tap-postgres
+    variant: meltanolabs
+    pip_url: meltanolabs-tap-postgres
+    config:
+      host: ${PG_PROD_HOST}
+      port: ${PG_PROD_PORT}
+      user: ${PG_PROD_USER}
+      password: ${PG_PROD_PASSWORD}
+      database: ${PG_PROD_DBNAME}
+      filter_schemas:
+        - public
+    select:
+      # Specify which tables to sync - replace with your actual table names
+       - "public-facebook_ad_accounts.*"
+       - "public-facebook_ad_statistics.*"
+       - "public-facebook_ads.*"
+       - "public-facebook_adsets.*"
+       - "public-facebook_apps.*"
+       - "public-facebook_campaigns.*"
+       - "public-onboarding_replies.*"
+    metadata:
+      '*':
+        replication-method: FULL_TABLE
+  loaders:
+  - name: target-postgres
+    variant: meltanolabs
+    pip_url: meltanolabs-target-postgres
+    config:
+      host: ${PG_ANALYTICS_HOST}
+      port: ${PG_ANALYTICS_PORT}
+      user: ${PG_ANALYTICS_USER}
+      password: ${PG_ANALYTICS_PASSWORD}
+      database: ${PG_ANALYTICS_DBNAME}
+      default_target_schema: ${TARGET_SCHEMA}
+      flattening_enabled: true
+      flattening_max_depth: 0
+      batch_size_rows: 1000
+      validate_records: false 

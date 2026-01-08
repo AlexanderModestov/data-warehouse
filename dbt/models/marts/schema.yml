@@ -1,0 +1,168 @@
+version: 2
+
+models:
+  - name: mart_new_subscriptions
+    description: |
+      New subscriptions with revenue and acquisition context.
+      Grain: One row per new subscription (first successful charge).
+
+      Use cases:
+      - Daily subscription revenue reporting
+      - Funnel performance analysis
+      - Geographic revenue breakdown
+      - Time-to-convert analysis
+    columns:
+      - name: subscription_id
+        description: Stripe charge ID for the first payment (primary key)
+        tests:
+          - unique
+          - not_null
+
+      - name: user_profile_id
+        description: FunnelFox profile ID (master user identifier)
+        tests:
+          - not_null
+
+      - name: funnelfox_subscription_id
+        description: FunnelFox subscription identifier
+
+      - name: subscription_date
+        description: Date of subscription (UTC)
+        tests:
+          - not_null
+
+      - name: subscription_timestamp
+        description: Exact timestamp of subscription (UTC)
+
+      - name: revenue_usd
+        description: Revenue in USD (converted from cents)
+        tests:
+          - not_null
+
+      - name: currency
+        description: Currency code for the charge
+
+      - name: subscription_price_usd
+        description: Subscription price from FunnelFox (USD)
+
+      - name: payment_provider
+        description: Payment provider (e.g., stripe, apple, google)
+
+      - name: billing_interval
+        description: Billing interval (month, year, etc.)
+
+      - name: billing_interval_count
+        description: Number of billing intervals
+
+      - name: subscription_status
+        description: FunnelFox subscription status
+
+      - name: funnel_id
+        description: ID of the funnel that led to conversion
+
+      - name: funnel_title
+        description: Name of the funnel
+
+      - name: funnel_type
+        description: Type of funnel
+
+      - name: funnel_environment
+        description: Funnel environment (dev, staging, prod)
+
+      - name: country
+        description: User's country from session
+
+      - name: city
+        description: User's city from session
+
+      - name: traffic_source
+        description: Traffic source/origin from session
+
+      - name: first_session_at
+        description: Timestamp of user's first session
+
+      - name: hours_to_convert
+        description: Hours from first session to subscription
+
+  - name: mart_funnel_conversions
+    description: |
+      Funnel session conversion tracking.
+      Grain: One row per funnel session (converted or not).
+
+      Use cases:
+      - Conversion rate analysis by funnel
+      - Time-to-convert distribution
+      - Geographic conversion analysis
+      - Traffic source performance
+    columns:
+      - name: session_id
+        description: FunnelFox session ID (primary key)
+        tests:
+          - unique
+          - not_null
+
+      - name: profile_id
+        description: User profile ID
+        tests:
+          - not_null
+
+      - name: session_date
+        description: Date of session (UTC)
+        tests:
+          - not_null
+
+      - name: session_timestamp
+        description: Exact timestamp of session (UTC)
+
+      - name: funnel_id
+        description: ID of the funnel
+        tests:
+          - not_null
+
+      - name: funnel_title
+        description: Name of the funnel
+
+      - name: funnel_type
+        description: Type of funnel
+
+      - name: funnel_environment
+        description: Funnel environment (dev, staging, prod)
+
+      - name: funnel_version
+        description: Version of the funnel at time of session
+
+      - name: country
+        description: User's country
+
+      - name: city
+        description: User's city
+
+      - name: traffic_source
+        description: Traffic source/origin
+
+      - name: converted
+        description: Binary flag (1 = converted, 0 = not converted)
+        tests:
+          - not_null
+          - accepted_values:
+              values: [0, 1]
+
+      - name: had_purchase
+        description: Boolean flag for whether session resulted in purchase
+        tests:
+          - not_null
+
+      - name: revenue_usd
+        description: Revenue in USD if converted (null if not)
+
+      - name: currency
+        description: Currency code if converted
+
+      - name: time_to_conversion_hours
+        description: Hours from session to conversion (null if not converted)
+
+      - name: conversion_timestamp
+        description: Timestamp of conversion (null if not converted)
+
+      - name: conversion_date
+        description: Date of conversion (null if not converted)

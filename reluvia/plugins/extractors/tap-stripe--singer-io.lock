@@ -1,0 +1,46 @@
+{
+  "plugin_type": "extractors",
+  "name": "tap-stripe",
+  "namespace": "tap_stripe",
+  "variant": "singer-io",
+  "label": "Stripe",
+  "docs": "https://hub.meltano.com/extractors/tap-stripe--singer-io",
+  "repo": "https://github.com/singer-io/tap-stripe",
+  "pip_url": "git+https://github.com/singer-io/tap-stripe.git",
+  "description": "Online payment processing for internet businesses",
+  "logo_url": "https://hub.meltano.com/assets/logos/extractors/stripe.png",
+  "capabilities": [
+    "catalog",
+    "discover",
+    "state"
+  ],
+  "settings_group_validation": [
+    [
+      "account_id",
+      "client_secret",
+      "start_date"
+    ]
+  ],
+  "settings": [
+    {
+      "name": "account_id",
+      "label": "Account ID",
+      "description": "#### How to get\n\nTo get your account ID:\n\n1. Visit your profile: [https://dashboard.stripe.com/settings/user](https://dashboard.stripe.com/settings/user)\n\n  - Or in the upper right, click on the avatar to access a dropdown, and click on `Profile`\n\n![Screenshot of what the avatar dropdown with Profile looks like](/assets/images/tap-stripe/01-stripe-docs.png)\n\n2. Once the page loads, scroll to the bottom to find your account ID in the section labelled `Accounts`\n\n![Screenshot of account ID](/assets/images/tap-stripe/02-stripe-docs.png)\n\n3. Copy and paste it somewhere you can refer later on when configuring the tap.\n",
+      "placeholder": "Ex. acct_1a2b3c4d5e"
+    },
+    {
+      "name": "client_secret",
+      "kind": "string",
+      "label": "Secret API Key",
+      "description": "#### How to get\n\nTo get your secret API key:\n\n1. Visit your Developer API Keys page: [https://dashboard.stripe.com/apikeys](https://dashboard.stripe.com/apikeys)\n\n  - You can find this by clicking on the `Developers` link on the left navigation and clicking on `API Keys`\n\n![Screeenshot of where the Developers link is on the left side](/assets/images/tap-stripe/03-stripe-docs.png)\n\n2. Under the `Standard keys` section, click on the button to `Create secret key`\n\n> **Tip: No button?**\n>\n> If the \"Create secret key\" button is not available, a secret key may already have been generated before.\n> In this case, use the \"Reveal live key token\" button under \"Token\" and to the right of \"Secret key\". The token that appears is the secret key you can copy and paste into the data source configuration.\n\n![Screenshot of where Create secret key button is](/assets/images/tap-stripe/04-stripe-docs.png)\n\n3. To make things easy to track, assign the secret key a name of `Meltano` so you know why you created the key\n\n![Screenshot of naming secret key](/assets/images/tap-stripe/05-stripe-docs.png)\n\n4. Once you click on `Create`, you should be greeted with you new API key which you'll copy and paste into the data source configuration.\n\n![Screenshot of the new API key](/assets/images/tap-stripe/06-stripe-docs.png)\n",
+      "placeholder": "Ex. sk_live_1a2b3c4d5e",
+      "sensitive": true
+    },
+    {
+      "name": "start_date",
+      "kind": "date_iso8601",
+      "label": "Start Date",
+      "description": "Determines how much historical data will be extracted. Please be aware that the larger the time period and amount of data, the longer the initial extraction can be expected to take."
+    }
+  ]
+}

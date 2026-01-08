@@ -1,0 +1,104 @@
+version: 2
+
+sources:
+  - name: raw_funnelfox
+    description: Web funnel data from FunnelFox
+    schema: raw_funnelfox
+    tables:
+      - name: sessions
+        description: Web funnel sessions with user profile and geo information
+        columns:
+          - name: id
+            description: Unique session identifier
+          - name: profile_id
+            description: Master user identifier (primary key for identity resolution)
+          - name: created_at
+            description: Session creation timestamp
+          - name: funnel_id
+            description: ID of the funnel the session belongs to
+          - name: country
+            description: User's country
+          - name: city
+            description: User's city
+
+      - name: subscriptions
+        description: FunnelFox subscription records linking to payment providers
+        columns:
+          - name: id
+            description: FunnelFox subscription ID
+          - name: psp_id
+            description: Payment Service Provider ID (links to Stripe charge ID)
+          - name: profile_id
+            description: User profile ID
+          - name: created_at
+            description: Subscription creation timestamp
+          - name: status
+            description: Subscription status
+          - name: sandbox
+            description: Whether this is a sandbox/test transaction
+
+      - name: funnels
+        description: Funnel configurations and metadata
+        columns:
+          - name: id
+            description: Unique funnel identifier
+          - name: title
+            description: Funnel title/name
+          - name: type
+            description: Funnel type
+
+  - name: raw_stripe
+    description: Payment data from Stripe
+    schema: raw_stripe
+    tables:
+      - name: charges
+        description: Stripe payment charges
+        columns:
+          - name: id
+            description: Stripe charge ID (links to FunnelFox psp_id)
+          - name: amount
+            description: Charge amount in cents
+          - name: currency
+            description: Currency code
+          - name: status
+            description: Charge status (succeeded, failed, etc.)
+          - name: created
+            description: Charge creation timestamp
+          - name: failure_code
+            description: Failure code if charge failed
+
+      - name: subscriptions
+        description: Stripe subscription records
+        columns:
+          - name: id
+            description: Stripe subscription ID
+          - name: status
+            description: Subscription status
+          - name: created
+            description: Subscription creation timestamp
+
+  - name: raw_amplitude
+    description: Product events from Amplitude
+    schema: raw_amplitude
+    tables:
+      - name: events
+        description: User product events
+        columns:
+          - name: user_id
+            description: User ID (links to FunnelFox profile_id)
+          - name: event_type
+            description: Type of event
+          - name: event_time
+            description: Event timestamp
+          - name: device_id
+            description: Device identifier (fallback for identity resolution)
+
+  - name: raw_facebook
+    description: Facebook Ads data
+    schema: raw_facebook
+    tables:
+      - name: ad_statistics
+        description: Facebook ad performance metrics
+
+      - name: campaigns
+        description: Facebook campaign details

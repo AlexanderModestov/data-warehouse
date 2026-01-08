@@ -1,0 +1,12 @@
+.venv
+.env
+.gitignore
+deploy
+Procfile
+dbt
+docs
+funnelfox_raw
+raw_funnelfox
+!reluvia/meltano.yaml
+funnelfox_schema.sql
+meltano_old.yml

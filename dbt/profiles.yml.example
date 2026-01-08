@@ -1,0 +1,25 @@
+# Copy this file to ~/.dbt/profiles.yml
+# Or set environment variables and dbt will use them automatically
+
+reluvia:
+  target: dev
+  outputs:
+    dev:
+      type: postgres
+      host: "{{ env_var('PG_ANALYTICS_HOST') }}"
+      user: "{{ env_var('PG_ANALYTICS_USER') }}"
+      password: "{{ env_var('PG_ANALYTICS_PASSWORD') }}"
+      port: "{{ env_var('PG_ANALYTICS_PORT') }}"
+      dbname: "{{ env_var('PG_ANALYTICS_DBNAME') }}"
+      schema: analytics
+      threads: 4
+
+    prod:
+      type: postgres
+      host: "{{ env_var('PG_ANALYTICS_HOST') }}"
+      user: "{{ env_var('PG_ANALYTICS_USER') }}"
+      password: "{{ env_var('PG_ANALYTICS_PASSWORD') }}"
+      port: "{{ env_var('PG_ANALYTICS_PORT') }}"
+      dbname: "{{ env_var('PG_ANALYTICS_DBNAME') }}"
+      schema: analytics
+      threads: 8

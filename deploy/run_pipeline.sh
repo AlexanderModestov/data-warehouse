@@ -60,7 +60,7 @@ echo ""
 # Run Meltano (Stripe + Amplitude) in background
 echo "Starting Meltano extractors..."
 (
-  cd reluvia
+  cd meltano
 
   echo "  Running tap-stripe → raw_stripe..."
   TARGET_SCHEMA=raw_stripe meltano run tap-stripe target-postgres

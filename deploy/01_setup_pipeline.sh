@@ -1,10 +1,10 @@
 #!/bin/bash
 # Step 1: Data Pipeline Setup
-# Deploys to existing reluvia-bi app (Postgres & credentials already configured)
+# Deploys to existing app (Postgres & credentials already configured)
 set -e
 
 echo "============================================"
-echo "Reluvia DWH - Pipeline Setup (Step 1 of 2)"
+echo "DWH - Pipeline Setup (Step 1 of 2)"
 echo "============================================"
 
 # Configuration

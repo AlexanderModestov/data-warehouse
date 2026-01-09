@@ -14,19 +14,14 @@ plugins:
       client_secret: ${STRIPE_API_KEY}
       start_date: '2024-01-01T00:00:00Z'
   - name: tap-amplitude
-    variant: airbyte
-    namespace: tap_amplitude
-    pip_url: git+https://github.com/MeltanoLabs/tap-airbyte-wrapper.git
-    executable: tap-airbyte
+    variant: meltanolabs
+    pip_url: git+https://github.com/MeltanoLabs/tap-amplitude.git
     config:
-      airbyte_spec:
-        image: airbyte/source-amplitude
-        tag: latest
-      airbyte_config:
-        api_key: ${AMPLITUDE_API_KEY}
-        secret_key: ${AMPLITUDE_SECRET_KEY}
-        start_date: '2025-07-01T00:00:00Z'
-        data_region: Standard Server
+      api_key: ${AMPLITUDE_API_KEY}
+      secret_key: ${AMPLITUDE_SECRET_KEY}
+      start_date: '2025-07-01T00:00:00Z'
+    select:
+      - "events.*"
   - name: tap-appsflyer
     variant: singer-io
     pip_url: tap-appsflyer
@@ -53,6 +48,28 @@ plugins:
     metadata:
       '*':
         replication-method: FULL_TABLE
+  mappers:
+  - name: meltano-map-transformer
+    variant: meltano
+    pip_url: meltano-map-transform
+    executable: meltano-map-transform
+    mappings:
+    - name: fix-amplitude-types
+      config:
+        stream_maps:
+          events_list:
+            __filter__: "False"
+          active_users:
+            __else__: null
+            timeline_hidden: int(timeline_hidden)
+          average_session_length:
+            __else__: null
+            timeline_hidden: int(timeline_hidden)
+          events:
+            __else__: null
+            timeline_hidden: int(timeline_hidden)
+          "*":
+            __else__: null
   loaders:
   - name: target-postgres
     variant: meltanolabs
@@ -66,5 +83,6 @@ plugins:
       default_target_schema: ${TARGET_SCHEMA}
       flattening_enabled: true
       flattening_max_depth: 0
-      batch_size_rows: 1000
-      validate_records: false 
+      batch_size_rows: 500
+      validate_records: false
+      max_parallelism: 1 

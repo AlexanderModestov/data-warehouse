@@ -135,11 +135,11 @@ LEFT JOIN raw_amplitude.events evt
 ### dbt_project.yml
 
 ```yaml
-name: 'reluvia_analytics'
+name: 'dwh_analytics'
 version: '1.0.0'
 config-version: 2
 
-profile: 'reluvia'
+profile: 'dwh'
 
 model-paths: ["models"]
 analysis-paths: ["analyses"]
@@ -153,7 +153,7 @@ clean-targets:
   - "dbt_packages"
 
 models:
-  reluvia_analytics:
+  dwh_analytics:
     marts:
       +materialized: table
       +schema: analytics
@@ -164,7 +164,7 @@ models:
 Located in `~/.dbt/` or configured via environment variables:
 
 ```yaml
-reluvia:
+dwh:
   target: dev
   outputs:
     dev:

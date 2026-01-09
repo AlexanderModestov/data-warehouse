@@ -82,7 +82,7 @@ def fetch_all(endpoint: str, params: dict | None = None, conn=None, insert_func=
                 requests.exceptions.ConnectionError,
                 requests.exceptions.ChunkedEncodingError,  # Сервер обрывает соединение
             ) as e:
-                if isinstance(e, requests.exceptions.HTTPError) and resp is not None and resp.status_code not in [408, 429, 500, 502, 503, 504]:
+                if isinstance(e, requests.exceptions.HTTPError) and resp is not None and resp.status_code not in [408, 429, 500, 502, 503, 504, 524]:
                     raise
 
                 if retry < max_retries - 1:

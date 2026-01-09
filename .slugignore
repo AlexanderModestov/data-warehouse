@@ -7,6 +7,6 @@ dbt
 docs
 funnelfox_raw
 raw_funnelfox
-!reluvia/meltano.yaml
+!meltano/meltano.yaml
 funnelfox_schema.sql
 meltano_old.yml

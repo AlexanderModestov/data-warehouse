@@ -11,10 +11,12 @@ __pycache__/
 *.pyc
 
 # Meltano local state (using Postgres on Heroku)
-reluvia/.meltano/
-reluvia/output/
+meltano/.meltano/
+meltano/output/
 
 # dbt artifacts (regenerated on each run)
 dbt/target/
 dbt/logs/
 dbt/dbt_packages/
+.mcp.json
+commands.txt

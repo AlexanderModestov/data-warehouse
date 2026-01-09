@@ -1,6 +1,6 @@
-# Reluvia Analytics - dbt Project
+# Analytics - dbt Project
 
-Analytics layer for Reluvia data warehouse, transforming raw data into business-ready marts.
+Analytics layer for the data warehouse, transforming raw data into business-ready marts.
 
 ## Project Structure
 
@@ -28,7 +28,7 @@ pip install dbt-postgres
 Create or edit `~/.dbt/profiles.yml`:
 
 ```yaml
-reluvia:
+dwh:
   target: dev
   outputs:
     dev:

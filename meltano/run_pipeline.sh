@@ -6,7 +6,7 @@ case "$1" in
     TARGET_SCHEMA=raw_stripe meltano run tap-stripe target-postgres
     ;;
   amplitude)
-    TARGET_SCHEMA=raw_amplitude meltano run tap-amplitude target-postgres
+    TARGET_SCHEMA=raw_amplitude meltano run tap-amplitude fix-amplitude-types target-postgres
     ;;
   facebook)
     TARGET_SCHEMA=raw_facebook meltano run tap-postgres target-postgres

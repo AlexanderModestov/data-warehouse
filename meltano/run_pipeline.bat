@@ -4,7 +4,7 @@ REM Helper script to run Meltano pipelines with the correct schema
 if "%1"=="stripe" (
     set "TARGET_SCHEMA=raw_stripe" && meltano run tap-stripe target-postgres
 ) else if "%1"=="amplitude" (
-    set "TARGET_SCHEMA=raw_amplitude" && meltano run tap-amplitude target-postgres
+    set "TARGET_SCHEMA=raw_amplitude" && meltano run tap-amplitude fix-amplitude-types target-postgres
 ) else if "%1"=="facebook" (
     set "TARGET_SCHEMA=raw_facebook" && meltano run tap-postgres target-postgres
 ) else if "%1"=="funnelfox" (

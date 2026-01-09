@@ -1,6 +1,6 @@
 [
   {
-    "alias": "reluvia-1",
+    "alias": "main-1",
     "environment": "prod",
     "id": "01K9MSNE1H0MXQ6TWFPTW61KJB",
     "last_published_at": "2026-01-07T10:45:45.446154Z",
@@ -8,7 +8,7 @@
     "tags": [
       "Growth team"
     ],
-    "title": "Reluvia Main",
+    "title": "Main Funnel",
     "type": "default",
     "variation_count": 0,
     "version": 72
@@ -26,7 +26,7 @@
     "version": 8
   },
   {
-    "alias": "reluviaapp",
+    "alias": "app-funnel",
     "environment": "prod",
     "id": "01KCRTHK6R6S0QP48W6QV60ZDM",
     "last_published_at": "2025-12-29T16:58:07.030556Z",
@@ -52,19 +52,19 @@
     "version": 4
   },
   {
-    "alias": "reluvia-test-tech",
+    "alias": "test-tech",
     "environment": "prod",
     "id": "01KBQGYY73EQPY77RPRHY19XXJ",
     "last_published_at": "2025-12-24T13:23:31.886246Z",
     "status": "published",
     "tags": [],
-    "title": "Reluvia Main Test",
+    "title": "Main Test",
     "type": "default",
     "variation_count": 0,
     "version": 9
   },
   {
-    "alias": "reluviafunnel",
+    "alias": "quiz-funnel",
     "environment": "prod",
     "id": "01KD5EWFA80GSDGXESP0BVSDRA",
     "last_published_at": "2025-12-24T13:23:17.56691Z",
@@ -92,7 +92,7 @@
     "version": 20
   },
   {
-    "alias": "thereluvia",
+    "alias": "funnel-duplicate",
     "environment": "prod",
     "id": "01KCRTCXEGRTNRZBEWDDYYG0J8",
     "last_published_at": "2025-12-24T13:21:51.023798Z",

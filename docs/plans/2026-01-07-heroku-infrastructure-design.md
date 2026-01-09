@@ -5,12 +5,12 @@
 
 ## Overview
 
-Two Heroku apps running the complete Reluvia data pipeline:
+Two Heroku apps running the complete data pipeline:
 
 | App | Purpose | Dyno Type | Cost |
 |-----|---------|-----------|------|
-| `reluvia-dwh` | Data pipelines (Meltano + Python + dbt) | One-off dynos via Scheduler | ~$0.50/month |
-| `reluvia-metabase` | Dashboards | Eco | $5/month |
+| `app-dwh` | Data pipelines (Meltano + Python + dbt) | One-off dynos via Scheduler | ~$0.50/month |
+| `app-metabase` | Dashboards | Eco | $5/month |
 
 **Total estimated cost:** ~$10-11/month (including Postgres Essential-0 at $5)
 
@@ -50,7 +50,7 @@ DWH/
 │   └── heroku_setup.sh         # One-time setup script
 ├── bin/
 │   └── run_pipeline.sh         # Daily orchestration script
-├── reluvia/                    # Meltano project
+├── meltano/                    # Meltano project
 │   └── meltano.yml             # Uses $DATABASE_URL
 ├── dbt/                        # dbt project
 │   ├── profiles.yml            # Heroku-compatible config
@@ -58,13 +58,13 @@ DWH/
 └── raw_funnelfox.py            # FunnelFox extraction script
 ```
 
-## Data Pipeline App (`reluvia-dwh`)
+## Data Pipeline App (`app-dwh`)
 
 ### Procfile
 
 ```
 pipeline: bin/run_pipeline.sh
-meltano: cd reluvia && meltano run tap-stripe tap-amplitude target-postgres
+meltano: cd meltano && meltano run tap-stripe tap-amplitude target-postgres
 funnelfox: python raw_funnelfox.py
 dbt: cd dbt && dbt run
 ```
@@ -84,7 +84,7 @@ Key features:
 
 ### Environment Variables
 
-Set via `heroku config:set -a reluvia-dwh`:
+Set via `heroku config:set -a app-dwh`:
 
 | Variable | Description |
 |----------|-------------|
@@ -94,7 +94,7 @@ Set via `heroku config:set -a reluvia-dwh`:
 | `TAP_AMPLITUDE_SECRET_KEY` | Amplitude secret key |
 | `FUNNELFOX_API_KEY` | FunnelFox credentials |
 
-## Metabase App (`reluvia-metabase`)
+## Metabase App (`app-metabase`)
 
 ### Deployment
 
@@ -118,7 +118,7 @@ Uses official Metabase buildpack, connects to the same Postgres database as the 
 ### Papertrail Logging
 
 ```bash
-heroku addons:create papertrail:choklad -a reluvia-dwh
+heroku addons:create papertrail:choklad -a app-dwh
 ```
 
 Features:
@@ -139,27 +139,27 @@ One-time setup via `deploy/heroku_setup.sh`:
 ### Part 1: Data Pipeline App
 
 ```bash
-heroku create reluvia-dwh --region eu
-heroku addons:create heroku-postgresql:essential-0 -a reluvia-dwh
-heroku addons:create scheduler:standard -a reluvia-dwh
-heroku config:set -a reluvia-dwh \
+heroku create app-dwh --region eu
+heroku addons:create heroku-postgresql:essential-0 -a app-dwh
+heroku addons:create scheduler:standard -a app-dwh
+heroku config:set -a app-dwh \
   TAP_STRIPE_API_KEY="sk_live_xxx" \
   TAP_AMPLITUDE_API_KEY="xxx" \
   TAP_AMPLITUDE_SECRET_KEY="xxx" \
   FUNNELFOX_API_KEY="xxx"
 git push heroku main
-heroku addons:open scheduler -a reluvia-dwh
+heroku addons:open scheduler -a app-dwh
 # → Add job: bin/run_pipeline.sh at 02:00 UTC
 ```
 
 ### Part 2: Metabase App
 
 ```bash
-heroku create reluvia-metabase --region eu
-heroku buildpacks:add https://github.com/metabase/metabase-buildpack -a reluvia-metabase
-heroku config:set -a reluvia-metabase \
+heroku create app-metabase --region eu
+heroku buildpacks:add https://github.com/metabase/metabase-buildpack -a app-metabase
+heroku config:set -a app-metabase \
   MB_DB_TYPE="postgres" \
-  MB_DB_CONNECTION_URI="$(heroku config:get DATABASE_URL -a reluvia-dwh)" \
+  MB_DB_CONNECTION_URI="$(heroku config:get DATABASE_URL -a app-dwh)" \
   JAVA_OPTS="-Xmx300m"
 # Deploy from Metabase buildpack
 ```

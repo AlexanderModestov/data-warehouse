@@ -1,7 +1,7 @@
-# CLAUDE.MD - Reluvia Data Intelligence
+# CLAUDE.MD - Data Intelligence
 
 ## Project Context
-Reluvia is a health/wellness project using a Web-to-App funnel.
+This is a health/wellness project using a Web-to-App funnel.
 - **Goal:** Full-funnel attribution from Meta Ads -> FunnelFox (Web) -> Stripe (Payment) -> Amplitude (App).
 
 ## Database Schema (PostgreSQL 17)

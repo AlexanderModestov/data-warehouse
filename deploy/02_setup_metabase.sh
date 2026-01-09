@@ -4,7 +4,7 @@
 set -e
 
 echo "============================================"
-echo "Reluvia DWH - Metabase Setup (Step 2 of 2)"
+echo "DWH - Metabase Setup (Step 2 of 2)"
 echo "============================================"
 
 # Configuration

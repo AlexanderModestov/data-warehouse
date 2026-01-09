@@ -1,7 +1,7 @@
 # Copy this file to ~/.dbt/profiles.yml
 # Or set environment variables and dbt will use them automatically
 
-reluvia:
+dwh:
   target: dev
   outputs:
     dev:

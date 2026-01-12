@@ -77,19 +77,34 @@ def generate_mock_payments(days: int = 30, payments_per_day: int = 30) -> pd.Dat
 def generate_mock_daily_summary(payments_df: pd.DataFrame) -> pd.DataFrame:
     """Aggregate mock payments into daily summary matching mart_stripe_payments_daily schema."""
 
+    # Aggregate successful payments
+    successful = payments_df[payments_df["is_successful"]]
+    failed = payments_df[~payments_df["is_successful"]]
+
+    # Basic aggregation
     daily = payments_df.groupby(["created_date", "funnel_name"]).agg(
         total_attempts=("charge_id", "count"),
         successful_payments=("is_successful", "sum"),
         failed_payments=("is_successful", lambda x: (~x).sum()),
-        gross_revenue_usd=("amount_usd", lambda x: x[payments_df.loc[x.index, "is_successful"]].sum()),
-        failed_revenue_usd=("amount_usd", lambda x: x[~payments_df.loc[x.index, "is_successful"]].sum()),
     ).reset_index()
+
+    # Revenue by group
+    revenue_success = successful.groupby(["created_date", "funnel_name"])["amount_usd"].sum().reset_index()
+    revenue_success.columns = ["created_date", "funnel_name", "gross_revenue_usd"]
+
+    revenue_failed = failed.groupby(["created_date", "funnel_name"])["amount_usd"].sum().reset_index()
+    revenue_failed.columns = ["created_date", "funnel_name", "failed_revenue_usd"]
+
+    daily = daily.merge(revenue_success, on=["created_date", "funnel_name"], how="left")
+    daily = daily.merge(revenue_failed, on=["created_date", "funnel_name"], how="left")
+    daily["gross_revenue_usd"] = daily["gross_revenue_usd"].fillna(0)
+    daily["failed_revenue_usd"] = daily["failed_revenue_usd"].fillna(0)
 
     daily["success_rate"] = daily["successful_payments"] / daily["total_attempts"]
     daily["date"] = daily["created_date"]
 
     # Add failure breakdown
-    failure_counts = payments_df[~payments_df["is_successful"]].groupby(
+    failure_counts = failed.groupby(
         ["created_date", "funnel_name", "failure_category"]
     ).size().unstack(fill_value=0).reset_index()
 

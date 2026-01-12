@@ -5,7 +5,7 @@ Currently uses mock data - swap to real DB queries when marts are ready.
 
 import streamlit as st
 import pandas as pd
-from datetime import date, timedelta
+from datetime import date
 from . import mock_data
 
 
@@ -106,9 +106,9 @@ def get_payments_list(
     if search:
         search_lower = search.lower()
         df = df[
-            df["charge_id"].str.lower().str.contains(search_lower) |
-            df["customer_id"].str.lower().str.contains(search_lower) |
-            df["profile_id"].str.lower().str.contains(search_lower)
+            df["charge_id"].str.lower().str.contains(search_lower, regex=False) |
+            df["customer_id"].str.lower().str.contains(search_lower, regex=False) |
+            df["profile_id"].str.lower().str.contains(search_lower, regex=False)
         ]
 
     total_count = len(df)
@@ -122,7 +122,7 @@ def get_payments_list(
 
 
 @st.cache_data(ttl=60)
-def get_payment_detail(charge_id: str) -> dict:
+def get_payment_detail(charge_id: str) -> dict | None:
     """Get detailed info for a single payment."""
     df = _get_mock_payments()
     payment = df[df["charge_id"] == charge_id]
@@ -152,6 +152,7 @@ def get_payment_detail(charge_id: str) -> dict:
     }
 
 
+@st.cache_data
 def get_filter_options() -> dict:
     """Get unique values for filter dropdowns."""
     df = _get_mock_payments()

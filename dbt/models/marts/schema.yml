@@ -294,3 +294,79 @@ models:
 
       - name: card_brand
         description: Card brand (visa, mastercard, amex, etc.)
+
+  - name: mart_stripe_payments_daily
+    description: |
+      Daily aggregated Stripe payment metrics.
+      Grain: One row per day + funnel + card_country + card_brand.
+
+      Use cases:
+      - Daily payment dashboard
+      - Success rate trends
+      - Failure category breakdown
+      - Recovery rate monitoring
+    columns:
+      - name: date
+        description: The date
+        tests:
+          - not_null
+
+      - name: funnel_name
+        description: Funnel name (null for all funnels)
+
+      - name: card_country
+        description: Card country (null for all countries)
+
+      - name: card_brand
+        description: Card brand (null for all brands)
+
+      - name: total_attempts
+        description: Total payment attempts
+        tests:
+          - not_null
+
+      - name: successful_payments
+        description: Count of successful payments
+        tests:
+          - not_null
+
+      - name: failed_payments
+        description: Count of failed payments
+        tests:
+          - not_null
+
+      - name: success_rate
+        description: Success rate (0.0 - 1.0)
+
+      - name: gross_revenue_usd
+        description: Sum of successful payment amounts
+
+      - name: failed_revenue_usd
+        description: Sum of failed payment amounts (potential lost revenue)
+
+      - name: failures_insufficient_funds
+        description: Count of insufficient funds failures
+
+      - name: failures_card_declined
+        description: Count of card declined failures
+
+      - name: failures_fraud_block
+        description: Count of fraud block failures
+
+      - name: failures_authentication_required
+        description: Count of authentication required failures
+
+      - name: failures_technical_error
+        description: Count of technical error failures
+
+      - name: failures_other
+        description: Count of other failures
+
+      - name: intents_with_retry
+        description: Payment intents that had multiple attempts
+
+      - name: intents_recovered
+        description: Failed intents that eventually succeeded
+
+      - name: recovery_rate
+        description: Recovery rate (recovered / intents_with_retry)

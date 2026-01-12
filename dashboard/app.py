@@ -52,6 +52,11 @@ def main():
     st.sidebar.markdown("---")
     st.sidebar.caption("Data refreshes every 5 minutes")
 
+    # Logout button
+    if st.sidebar.button("Logout"):
+        st.session_state.authenticated = False
+        st.rerun()
+
     # Main content
     st.title("Welcome to the Stripe Payments Dashboard")
     st.markdown("""

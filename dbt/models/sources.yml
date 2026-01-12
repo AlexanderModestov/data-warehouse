@@ -66,6 +66,14 @@ sources:
             description: Charge creation timestamp
           - name: failure_code
             description: Failure code if charge failed
+          - name: payment_intent
+            description: Payment intent ID (groups retry attempts)
+          - name: payment_method_details
+            description: JSON containing card details (brand, country, funding)
+          - name: billing_details
+            description: JSON containing customer billing address
+          - name: outcome
+            description: JSON containing payment outcome details
 
       - name: subscriptions
         description: Stripe subscription records

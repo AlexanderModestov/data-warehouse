@@ -166,3 +166,207 @@ models:
 
       - name: conversion_date
         description: Date of conversion (null if not converted)
+
+  - name: mart_stripe_payments
+    description: |
+      Stripe payment attempts with success/failure tracking and retry intelligence.
+      Grain: One row per payment attempt (charge).
+
+      Use cases:
+      - Payment success/failure rate monitoring
+      - Failure diagnosis by category and recovery action
+      - Retry and recovery rate analysis
+      - Revenue and failed revenue tracking by funnel/geo/time
+    columns:
+      - name: charge_id
+        description: Stripe charge ID (primary key)
+        tests:
+          - unique
+          - not_null
+
+      - name: payment_intent_id
+        description: Payment intent ID (groups retry attempts together)
+
+      - name: customer_id
+        description: Stripe customer ID
+
+      - name: profile_id
+        description: FunnelFox master user ID
+
+      - name: status
+        description: Payment status (succeeded, failed, pending)
+        tests:
+          - not_null
+          - accepted_values:
+              values: ['succeeded', 'failed', 'pending']
+
+      - name: is_successful
+        description: Boolean flag for successful payment
+        tests:
+          - not_null
+
+      - name: amount_usd
+        description: Payment amount in USD (converted from cents)
+        tests:
+          - not_null
+
+      - name: currency
+        description: Original currency code
+
+      - name: failure_code
+        description: Raw Stripe failure code (null if succeeded)
+
+      - name: failure_category
+        description: Categorized failure type
+        tests:
+          - accepted_values:
+              values: ['insufficient_funds', 'card_declined', 'fraud_block', 'authentication_required', 'expired_card', 'invalid_card', 'processing_error', 'technical_error']
+              config:
+                where: "status = 'failed'"
+
+      - name: recovery_action
+        description: Suggested recovery action for failed payments
+        tests:
+          - accepted_values:
+              values: ['retry_eligible', 'request_new_card', 'verify_3ds', 'contact_support']
+              config:
+                where: "status = 'failed'"
+
+      - name: attempt_number
+        description: Attempt number within payment intent (1, 2, 3...)
+        tests:
+          - not_null
+
+      - name: is_first_attempt
+        description: True if this is the first attempt for this payment intent
+        tests:
+          - not_null
+
+      - name: is_final_attempt
+        description: True if this is the last attempt for this payment intent
+        tests:
+          - not_null
+
+      - name: intent_eventually_succeeded
+        description: True if any attempt in this payment intent succeeded
+        tests:
+          - not_null
+
+      - name: created_at
+        description: Payment attempt timestamp (UTC)
+        tests:
+          - not_null
+
+      - name: created_date
+        description: Payment date (UTC)
+        tests:
+          - not_null
+
+      - name: hour_of_day
+        description: Hour of day (0-23)
+
+      - name: day_of_week
+        description: Day of week name
+
+      - name: week_start_date
+        description: Monday of the week
+
+      - name: month_start_date
+        description: First of the month
+
+      - name: funnel_name
+        description: Funnel that drove this user
+
+      - name: traffic_source
+        description: Traffic source (utm_source or origin)
+
+      - name: traffic_medium
+        description: Traffic medium (utm_medium)
+
+      - name: traffic_campaign
+        description: Traffic campaign (utm_campaign)
+
+      - name: card_country
+        description: Card country of issue
+
+      - name: customer_country
+        description: Customer billing country
+
+      - name: card_brand
+        description: Card brand (visa, mastercard, amex, etc.)
+
+  - name: mart_stripe_payments_daily
+    description: |
+      Daily aggregated Stripe payment metrics.
+      Grain: One row per day + funnel + card_country + card_brand.
+
+      Use cases:
+      - Daily payment dashboard
+      - Success rate trends
+      - Failure category breakdown
+      - Recovery rate monitoring
+    columns:
+      - name: date
+        description: The date
+        tests:
+          - not_null
+
+      - name: funnel_name
+        description: Funnel name (null for all funnels)
+
+      - name: card_country
+        description: Card country (null for all countries)
+
+      - name: card_brand
+        description: Card brand (null for all brands)
+
+      - name: total_attempts
+        description: Total payment attempts
+        tests:
+          - not_null
+
+      - name: successful_payments
+        description: Count of successful payments
+        tests:
+          - not_null
+
+      - name: failed_payments
+        description: Count of failed payments
+        tests:
+          - not_null
+
+      - name: success_rate
+        description: Success rate (0.0 - 1.0)
+
+      - name: gross_revenue_usd
+        description: Sum of successful payment amounts
+
+      - name: failed_revenue_usd
+        description: Sum of failed payment amounts (potential lost revenue)
+
+      - name: failures_insufficient_funds
+        description: Count of insufficient funds failures
+
+      - name: failures_card_declined
+        description: Count of card declined failures
+
+      - name: failures_fraud_block
+        description: Count of fraud block failures
+
+      - name: failures_authentication_required
+        description: Count of authentication required failures
+
+      - name: failures_technical_error
+        description: Count of technical error failures
+
+      - name: failures_other
+        description: Count of other failures
+
+      - name: intents_with_retry
+        description: Payment intents that had multiple attempts
+
+      - name: intents_recovered
+        description: Failed intents that eventually succeeded
+
+      - name: recovery_rate
+        description: Recovery rate (recovered / intents_with_retry)

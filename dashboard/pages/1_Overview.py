@@ -10,9 +10,6 @@ from datetime import date, timedelta
 
 from lib import queries
 
-# Page config
-st.set_page_config(page_title="Overview - Payments", page_icon="📊", layout="wide")
-
 # Auth check
 if not st.session_state.get("authenticated", False):
     st.warning("Please login from the main page.")
@@ -138,9 +135,11 @@ if not daily_data.empty:
         mode="lines+markers",
     ))
 
+    # Dynamic y-axis range for success rate (min - 5%, capped at 0)
+    min_rate = max(0, (daily_agg["success_rate"].min() * 100) - 5)
     fig.update_layout(
         yaxis=dict(title="Revenue ($)", side="left"),
-        yaxis2=dict(title="Success Rate (%)", side="right", overlaying="y", range=[80, 100]),
+        yaxis2=dict(title="Success Rate (%)", side="right", overlaying="y", range=[min_rate, 100]),
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
         height=400,
         margin=dict(t=30),

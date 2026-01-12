@@ -166,3 +166,131 @@ models:
 
       - name: conversion_date
         description: Date of conversion (null if not converted)
+
+  - name: mart_stripe_payments
+    description: |
+      Stripe payment attempts with success/failure tracking and retry intelligence.
+      Grain: One row per payment attempt (charge).
+
+      Use cases:
+      - Payment success/failure rate monitoring
+      - Failure diagnosis by category and recovery action
+      - Retry and recovery rate analysis
+      - Revenue and failed revenue tracking by funnel/geo/time
+    columns:
+      - name: charge_id
+        description: Stripe charge ID (primary key)
+        tests:
+          - unique
+          - not_null
+
+      - name: payment_intent_id
+        description: Payment intent ID (groups retry attempts together)
+
+      - name: customer_id
+        description: Stripe customer ID
+
+      - name: profile_id
+        description: FunnelFox master user ID
+
+      - name: status
+        description: Payment status (succeeded, failed, pending)
+        tests:
+          - not_null
+          - accepted_values:
+              values: ['succeeded', 'failed', 'pending']
+
+      - name: is_successful
+        description: Boolean flag for successful payment
+        tests:
+          - not_null
+
+      - name: amount_usd
+        description: Payment amount in USD (converted from cents)
+        tests:
+          - not_null
+
+      - name: currency
+        description: Original currency code
+
+      - name: failure_code
+        description: Raw Stripe failure code (null if succeeded)
+
+      - name: failure_category
+        description: Categorized failure type
+        tests:
+          - accepted_values:
+              values: ['insufficient_funds', 'card_declined', 'fraud_block', 'authentication_required', 'expired_card', 'invalid_card', 'processing_error', 'technical_error']
+              config:
+                where: "status = 'failed'"
+
+      - name: recovery_action
+        description: Suggested recovery action for failed payments
+        tests:
+          - accepted_values:
+              values: ['retry_eligible', 'request_new_card', 'verify_3ds', 'contact_support']
+              config:
+                where: "status = 'failed'"
+
+      - name: attempt_number
+        description: Attempt number within payment intent (1, 2, 3...)
+        tests:
+          - not_null
+
+      - name: is_first_attempt
+        description: True if this is the first attempt for this payment intent
+        tests:
+          - not_null
+
+      - name: is_final_attempt
+        description: True if this is the last attempt for this payment intent
+        tests:
+          - not_null
+
+      - name: intent_eventually_succeeded
+        description: True if any attempt in this payment intent succeeded
+        tests:
+          - not_null
+
+      - name: created_at
+        description: Payment attempt timestamp (UTC)
+        tests:
+          - not_null
+
+      - name: created_date
+        description: Payment date (UTC)
+        tests:
+          - not_null
+
+      - name: hour_of_day
+        description: Hour of day (0-23)
+
+      - name: day_of_week
+        description: Day of week name
+
+      - name: week_start_date
+        description: Monday of the week
+
+      - name: month_start_date
+        description: First of the month
+
+      - name: funnel_name
+        description: Funnel that drove this user
+
+      - name: traffic_source
+        description: Traffic source (utm_source or origin)
+
+      - name: traffic_medium
+        description: Traffic medium (utm_medium)
+
+      - name: traffic_campaign
+        description: Traffic campaign (utm_campaign)
+
+      - name: card_country
+        description: Card country of issue
+
+      - name: customer_country
+        description: Customer billing country
+
+      - name: card_brand
+        description: Card brand (visa, mastercard, amex, etc.)

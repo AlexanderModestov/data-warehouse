@@ -23,3 +23,6 @@ commands.txt
 
 # Git worktrees
 .worktrees/
+
+# Temporary Claude files
+tmpclaude-*

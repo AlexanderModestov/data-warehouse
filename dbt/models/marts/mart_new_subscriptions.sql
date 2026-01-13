@@ -9,55 +9,43 @@
     New Subscriptions Mart
 
     Purpose: Track new subscriptions with revenue and acquisition context
-    Grain: One row per new subscription (first successful charge)
+    Grain: One row per new subscription (FunnelFox subscription record)
 
     Business Logic:
-    - Revenue calculated as amount / 100.0 (Stripe stores cents)
-    - Only successful charges (status = 'succeeded')
+    - Revenue calculated as price / 100.0 (FunnelFox stores cents)
     - Exclude sandbox transactions
-    - Links FunnelFox sessions via profile_id for acquisition context
+    - Links to sessions via timestamp correlation (session within 30 min before subscription)
+    - Note: FunnelFox API doesn't expose profile_id on subscriptions, so we correlate by time
+
+    Data Limitations:
+    - Stripe charge linkage not currently possible (subscription IDs don't match)
+    - Profile linkage is approximate based on session timing
 */
 
-WITH stripe_charges AS (
+WITH funnelfox_subscriptions AS (
     SELECT
-        id AS charge_id,
-        amount / 100.0 AS revenue_usd,
-        currency,
-        status,
-        created AS charge_created_at,
-        customer AS customer_id,
-        failure_code,
-        invoice AS invoice_id
-    FROM {{ source('raw_stripe', 'charges') }}
-    WHERE status = 'succeeded'
-),
-
-funnelfox_subscriptions AS (
-    SELECT
-        id AS funnelfox_subscription_id,
-        psp_id,
-        profile_id,
+        id AS subscription_id,
+        psp_id AS stripe_subscription_id,
         created_at AS subscription_created_at,
-        status,
-        sandbox,
+        status AS subscription_status,
         payment_provider,
         billing_interval,
         billing_interval_count,
-        price / 100.0 AS price_usd
+        currency,
+        price / 100.0 AS revenue_usd
     FROM {{ source('raw_funnelfox', 'subscriptions') }}
     WHERE sandbox = FALSE  -- Exclude test transactions
 ),
 
 funnelfox_sessions AS (
     SELECT
+        id AS session_id,
         profile_id,
         funnel_id,
         country,
         city,
         origin,
-        created_at AS session_created_at,
-        user_agent,
-        ip
+        created_at AS session_created_at
     FROM {{ source('raw_funnelfox', 'sessions') }}
 ),
 
@@ -70,62 +58,52 @@ funnels AS (
     FROM {{ source('raw_funnelfox', 'funnels') }}
 ),
 
--- Join charges with FunnelFox subscriptions via psp_id
-subscription_charges AS (
+-- Match subscriptions to sessions via timestamp correlation
+-- Find the most recent session within 30 minutes before subscription creation
+subscriptions_with_sessions AS (
     SELECT
-        sc.charge_id,
-        sc.revenue_usd,
-        sc.currency,
-        sc.charge_created_at,
-        sc.customer_id,
-        sc.failure_code,
-        fs.funnelfox_subscription_id,
-        fs.profile_id,
-        fs.subscription_created_at,
-        fs.status AS subscription_status,
-        fs.payment_provider,
-        fs.billing_interval,
-        fs.billing_interval_count,
-        fs.price_usd AS subscription_price_usd,
-        -- Use ROW_NUMBER to identify first charge per subscription
-        ROW_NUMBER() OVER (
-            PARTITION BY fs.funnelfox_subscription_id
-            ORDER BY sc.charge_created_at ASC
-        ) AS charge_sequence
-    FROM stripe_charges sc
-    INNER JOIN funnelfox_subscriptions fs
-        ON sc.charge_id = fs.psp_id
+        s.*,
+        sess.session_id,
+        sess.profile_id,
+        sess.funnel_id,
+        sess.country,
+        sess.city,
+        sess.origin,
+        sess.session_created_at,
+        -- Minutes between session and subscription
+        EXTRACT(EPOCH FROM (s.subscription_created_at - sess.session_created_at)) / 60.0 AS minutes_to_convert
+    FROM funnelfox_subscriptions s
+    LEFT JOIN LATERAL (
+        SELECT *
+        FROM funnelfox_sessions sess
+        WHERE sess.session_created_at < s.subscription_created_at
+          AND sess.session_created_at > s.subscription_created_at - INTERVAL '30 minutes'
+        ORDER BY sess.session_created_at DESC
+        FETCH FIRST 1 ROWS ONLY
+    ) sess ON TRUE
 ),
 
--- Get only first charges (new subscriptions)
-new_subscriptions AS (
-    SELECT *
-    FROM subscription_charges
-    WHERE charge_sequence = 1
-),
-
--- Add funnel context from sessions
 final AS (
     SELECT
         -- Identifiers
-        ns.charge_id AS subscription_id,
-        ns.profile_id AS user_profile_id,
-        ns.funnelfox_subscription_id,
+        sws.subscription_id,
+        sws.profile_id AS user_profile_id,
+        sws.stripe_subscription_id,
+        sws.session_id AS matched_session_id,
 
         -- Dates
-        DATE(ns.charge_created_at AT TIME ZONE 'UTC') AS subscription_date,
-        ns.charge_created_at AS subscription_timestamp,
+        DATE(sws.subscription_created_at AT TIME ZONE 'UTC') AS subscription_date,
+        sws.subscription_created_at AS subscription_timestamp,
 
         -- Revenue
-        ns.revenue_usd,
-        ns.currency,
-        ns.subscription_price_usd,
+        sws.revenue_usd,
+        sws.currency,
 
         -- Subscription details
-        ns.payment_provider,
-        ns.billing_interval,
-        ns.billing_interval_count,
-        ns.subscription_status,
+        sws.payment_provider,
+        sws.billing_interval,
+        sws.billing_interval_count,
+        sws.subscription_status,
 
         -- Funnel context
         f.funnel_id,
@@ -134,21 +112,19 @@ final AS (
         f.environment AS funnel_environment,
 
         -- Geography
-        sess.country,
-        sess.city,
+        sws.country,
+        sws.city,
 
         -- Acquisition
-        sess.origin AS traffic_source,
-        sess.session_created_at AS first_session_at,
+        sws.origin AS traffic_source,
+        sws.session_created_at AS first_session_at,
 
-        -- Time to convert
-        EXTRACT(EPOCH FROM (ns.charge_created_at - sess.session_created_at)) / 3600.0 AS hours_to_convert
+        -- Time to convert (in hours)
+        sws.minutes_to_convert / 60.0 AS hours_to_convert
 
-    FROM new_subscriptions ns
-    LEFT JOIN funnelfox_sessions sess
-        ON ns.profile_id = sess.profile_id
+    FROM subscriptions_with_sessions sws
     LEFT JOIN funnels f
-        ON sess.funnel_id = f.funnel_id
+        ON sws.funnel_id = f.funnel_id
 )
 
 SELECT * FROM final

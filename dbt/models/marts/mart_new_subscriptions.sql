@@ -1,7 +1,6 @@
 {{
     config(
-        materialized='table',
-        schema='analytics'
+        materialized='table'
     )
 }}
 
@@ -120,7 +119,13 @@ final AS (
         sws.session_created_at AS first_session_at,
 
         -- Time to convert (in hours)
-        sws.minutes_to_convert / 60.0 AS hours_to_convert
+        sws.minutes_to_convert / 60.0 AS hours_to_convert,
+
+        -- Payment type (subscription vs one-time)
+        CASE
+            WHEN sws.billing_interval IS NOT NULL THEN 'subscription'
+            ELSE 'one_time'
+        END AS payment_type
 
     FROM subscriptions_with_sessions sws
     LEFT JOIN funnels f

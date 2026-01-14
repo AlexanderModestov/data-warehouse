@@ -287,7 +287,7 @@ def insert_subscriptions(conn, data: list[dict]) -> None:
         insert_query = """
             INSERT INTO raw_funnelfox.subscriptions
             (id, billing_interval, billing_interval_count, created_at, currency, funnel_version,
-             payment_provider, period_ends_at, period_starts_at, price, price_usd, psp_id,
+             payment_provider, period_ends_at, period_starts_at, price, price_usd, profile_id, psp_id,
              renews, sandbox, status, updated_at)
             VALUES %s
             ON CONFLICT (id) DO UPDATE SET
@@ -301,6 +301,7 @@ def insert_subscriptions(conn, data: list[dict]) -> None:
                 period_starts_at = EXCLUDED.period_starts_at,
                 price = EXCLUDED.price,
                 price_usd = EXCLUDED.price_usd,
+                profile_id = EXCLUDED.profile_id,
                 psp_id = EXCLUDED.psp_id,
                 renews = EXCLUDED.renews,
                 sandbox = EXCLUDED.sandbox,
@@ -321,6 +322,7 @@ def insert_subscriptions(conn, data: list[dict]) -> None:
                 item.get("period_starts_at"),
                 item.get("price"),
                 item.get("price_usd"),
+                item.get("profile_id"),
                 item.get("psp_id"),
                 item.get("renews"),
                 item.get("sandbox"),
@@ -334,6 +336,148 @@ def insert_subscriptions(conn, data: list[dict]) -> None:
     print(f"Inserted {len(data)} subscriptions into database")
 
 
+def insert_profiles(conn, data: list[dict]) -> None:
+    """Insert profiles data into PostgreSQL."""
+    if not data:
+        return
+
+    with conn.cursor() as cur:
+        insert_query = """
+            INSERT INTO raw_funnelfox.profiles (id, data)
+            VALUES %s
+            ON CONFLICT (id) DO UPDATE SET
+                data = EXCLUDED.data,
+                loaded_at = CURRENT_TIMESTAMP
+        """
+        values = [
+            (item.get("id"), json.dumps(item))
+            for item in data
+        ]
+        execute_values(cur, insert_query, values)
+    conn.commit()
+    print(f"Inserted {len(data)} profiles into database")
+
+
+def insert_transactions(conn, data: list[dict]) -> None:
+    """Insert transactions data into PostgreSQL."""
+    if not data:
+        return
+
+    with conn.cursor() as cur:
+        insert_query = """
+            INSERT INTO raw_funnelfox.transactions (id, data)
+            VALUES %s
+            ON CONFLICT (id) DO UPDATE SET
+                data = EXCLUDED.data,
+                loaded_at = CURRENT_TIMESTAMP
+        """
+        values = [
+            (item.get("id"), json.dumps(item))
+            for item in data
+        ]
+        execute_values(cur, insert_query, values)
+    conn.commit()
+    print(f"Inserted {len(data)} transactions into database")
+
+
+def insert_session_replies(conn, session_id: str, data: list[dict]) -> None:
+    """Insert session replies data into PostgreSQL."""
+    if not data:
+        return
+
+    with conn.cursor() as cur:
+        insert_query = """
+            INSERT INTO raw_funnelfox.session_replies (id, session_id, data)
+            VALUES %s
+            ON CONFLICT (id) DO UPDATE SET
+                session_id = EXCLUDED.session_id,
+                data = EXCLUDED.data,
+                loaded_at = CURRENT_TIMESTAMP
+        """
+        values = [
+            (item.get("id"), session_id, json.dumps(item))
+            for item in data
+        ]
+        execute_values(cur, insert_query, values)
+    conn.commit()
+
+
+def fetch_session_replies(conn, sessions: list[dict]) -> int:
+    """
+    Fetch replies for all sessions.
+    Returns total number of replies fetched.
+    """
+    total_replies = 0
+    total_sessions = len(sessions)
+    sessions_with_replies = 0
+    max_retries = 5
+    base_delay = 1.0  # 1 second between requests
+
+    print(f"\nFetching replies for {total_sessions} sessions...")
+
+    for idx, session in enumerate(sessions, 1):
+        session_id = session.get("id")
+        if not session_id:
+            continue
+
+        url = f"{BASE_URL}/sessions/{session_id}/replies"
+
+        # Progress indicator every 100 sessions
+        if idx % 100 == 0 or idx == total_sessions:
+            print(f"  Progress: {idx}/{total_sessions} sessions processed, {total_replies} replies found")
+
+        # Retry logic
+        resp = None
+        for retry in range(max_retries):
+            try:
+                resp = requests.get(url, headers=HEADERS, timeout=60)
+                if resp.status_code == 404:
+                    # No replies for this session
+                    break
+                resp.raise_for_status()
+                break
+            except (
+                requests.exceptions.Timeout,
+                requests.exceptions.HTTPError,
+                requests.exceptions.ConnectionError,
+            ) as e:
+                if isinstance(e, requests.exceptions.HTTPError) and resp is not None:
+                    if resp.status_code == 404:
+                        break
+                    if resp.status_code not in [408, 429, 500, 502, 503, 504]:
+                        break
+
+                if retry < max_retries - 1:
+                    wait_time = min(2 * (2 ** retry), 30)
+                    print(f"  Error on session {session_id}, waiting {wait_time}s... (attempt {retry + 2}/{max_retries})")
+                    time.sleep(wait_time)
+                else:
+                    print(f"  Failed to fetch replies for session {session_id} after {max_retries} retries")
+                    resp = None
+
+        if resp is None or resp.status_code == 404:
+            time.sleep(base_delay * 0.5)  # Shorter delay for 404s
+            continue
+
+        try:
+            data = resp.json()
+            replies = data.get("data", [])
+
+            if replies:
+                insert_session_replies(conn, session_id, replies)
+                total_replies += len(replies)
+                sessions_with_replies += 1
+
+        except Exception as e:
+            print(f"  Error processing replies for session {session_id}: {e}")
+
+        # Rate limiting
+        time.sleep(base_delay)
+
+    print(f"\nSession replies complete: {total_replies} replies from {sessions_with_replies} sessions")
+    return total_replies
+
+
 def main():
     # Что именно выгружать — можно менять список
     endpoints = {
@@ -341,7 +485,8 @@ def main():
         "products": "products",            # продукты
         "sessions": "sessions",            # сессии пользователей
         "subscriptions": "subscriptions",  # подписки
-        # при необходимости можно добавить свои list-эндпоинты
+        "profiles": "profiles",            # профили пользователей
+        "transactions": "transactions",    # транзакции
     }
 
     # Database insertion functions mapping
@@ -350,6 +495,8 @@ def main():
         "products": insert_products,
         "sessions": insert_sessions,
         "subscriptions": insert_subscriptions,
+        "profiles": insert_profiles,
+        "transactions": insert_transactions,
     }
 
     # Connect to database
@@ -360,6 +507,8 @@ def main():
         # Initialize schema
         init_schema(conn)
 
+        sessions_data = []  # Store sessions for fetching replies later
+
         for name, endpoint in endpoints.items():
             print(f"\nExporting {name} ...")
 
@@ -369,6 +518,15 @@ def main():
 
             # Save to JSON (backup)
             save_json(name, data)
+
+            # Keep sessions data for replies fetching
+            if name == "sessions":
+                sessions_data = data
+
+        # Fetch session replies (requires individual API calls per session)
+        if sessions_data:
+            print("\nExporting session_replies ...")
+            fetch_session_replies(conn, sessions_data)
 
         print("\nAll data successfully loaded into PostgreSQL!")
 

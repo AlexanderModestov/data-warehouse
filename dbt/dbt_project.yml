@@ -2,7 +2,7 @@ name: 'dwh_analytics'
 version: '1.0.0'
 config-version: 2
 
-profile: 'dwh'
+profile: 'analytics'
 
 model-paths: ["models"]
 analysis-paths: ["analyses"]
@@ -19,4 +19,4 @@ models:
   dwh_analytics:
     marts:
       +materialized: table
-      +schema: analytics
+      # Tables will go to 'analytics' schema (from profiles.yml)

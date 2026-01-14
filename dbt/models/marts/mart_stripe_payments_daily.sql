@@ -1,7 +1,6 @@
 {{
     config(
-        materialized='table',
-        schema='analytics'
+        materialized='table'
     )
 }}
 
@@ -9,9 +8,14 @@
     Stripe Payments Daily Mart
 
     Purpose: Daily aggregated payment metrics for dashboards and trend analysis
-    Grain: One row per day + funnel + card_country + card_brand
+    Grain: One row per day + funnel + card_country + card_brand + description
 
     Built on top of mart_stripe_payments for consistent business logic
+
+    Description values from Stripe:
+    - "Subscription creation" - New subscription
+    - "Subscription update" - Subscription modification
+    - etc.
 */
 
 WITH payments AS (
@@ -25,6 +29,7 @@ daily_metrics AS (
         funnel_name,
         card_country,
         card_brand,
+        description,
 
         -- Volume metrics
         COUNT(*) AS total_attempts,
@@ -48,7 +53,8 @@ daily_metrics AS (
         created_date,
         funnel_name,
         card_country,
-        card_brand
+        card_brand,
+        description
 ),
 
 -- Calculate retry/recovery metrics (need to aggregate at intent level first)
@@ -58,6 +64,7 @@ intent_metrics AS (
         funnel_name,
         card_country,
         card_brand,
+        description,
         payment_intent_id,
         COUNT(*) AS attempts_in_intent,
         MAX(CASE WHEN is_successful THEN 1 ELSE 0 END) AS intent_succeeded,
@@ -69,6 +76,7 @@ intent_metrics AS (
         funnel_name,
         card_country,
         card_brand,
+        description,
         payment_intent_id
 ),
 
@@ -78,6 +86,7 @@ recovery_metrics AS (
         funnel_name,
         card_country,
         card_brand,
+        description,
         -- Intents with multiple attempts (had at least one retry)
         SUM(CASE WHEN attempts_in_intent > 1 THEN 1 ELSE 0 END) AS intents_with_retry,
         -- Intents that had a failure but eventually succeeded
@@ -87,7 +96,8 @@ recovery_metrics AS (
         created_date,
         funnel_name,
         card_country,
-        card_brand
+        card_brand,
+        description
 ),
 
 -- Combine all metrics
@@ -97,6 +107,7 @@ final AS (
         dm.funnel_name,
         dm.card_country,
         dm.card_brand,
+        dm.description,
 
         -- Volume
         dm.total_attempts,
@@ -133,6 +144,7 @@ final AS (
         AND COALESCE(dm.funnel_name, '') = COALESCE(rm.funnel_name, '')
         AND COALESCE(dm.card_country, '') = COALESCE(rm.card_country, '')
         AND COALESCE(dm.card_brand, '') = COALESCE(rm.card_brand, '')
+        AND COALESCE(dm.description, '') = COALESCE(rm.description, '')
 )
 
 SELECT * FROM final

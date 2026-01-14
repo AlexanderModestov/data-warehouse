@@ -84,12 +84,27 @@ models:
       - name: hours_to_convert
         description: Hours from first session to subscription
 
+      - name: payment_type
+        description: Payment type (subscription or one_time) based on billing_interval
+        tests:
+          - not_null
+          - accepted_values:
+              values: ['subscription', 'one_time']
+
   - name: mart_funnel_conversions
     description: |
       Funnel session conversion tracking.
       Grain: One row per funnel session (converted or not).
 
+      Conversion Types:
+      1. subscription_activated - User initiated checkout (subscription created in any status)
+      2. trial_started          - User started a trial period (status = 'trialing')
+      3. trial_converted        - Trial subscription with successful payment
+      4. direct_paid            - Non-trial subscription with successful payment
+      5. paid_successfully      - Any successful Stripe charge
+
       Use cases:
+      - Multi-stage funnel analysis (attempt → trial → payment)
       - Conversion rate analysis by funnel
       - Time-to-convert distribution
       - Geographic conversion analysis
@@ -140,20 +155,58 @@ models:
       - name: traffic_source
         description: Traffic source/origin
 
+      - name: subscription_activated
+        description: "Stage 1: User initiated checkout (subscription created in any status)"
+        tests:
+          - not_null
+          - accepted_values:
+              values: [0, 1]
+
+      - name: trial_started
+        description: "Stage 2: User started a trial period (subscription status = 'trialing')"
+        tests:
+          - not_null
+          - accepted_values:
+              values: [0, 1]
+
+      - name: trial_converted
+        description: "Stage 2b: Trial subscription with successful payment"
+        tests:
+          - not_null
+          - accepted_values:
+              values: [0, 1]
+
+      - name: direct_paid
+        description: "Stage 3a: Non-trial subscription with successful payment"
+        tests:
+          - not_null
+          - accepted_values:
+              values: [0, 1]
+
+      - name: paid_successfully
+        description: "Stage 3: User completed payment (any successful Stripe charge)"
+        tests:
+          - not_null
+          - accepted_values:
+              values: [0, 1]
+
       - name: converted
-        description: Binary flag (1 = converted, 0 = not converted)
+        description: "Legacy: Binary flag (1 = subscription exists, 0 = not). Use paid_successfully for actual payments."
         tests:
           - not_null
           - accepted_values:
               values: [0, 1]
 
       - name: had_purchase
-        description: Boolean flag for whether session resulted in purchase
+        description: Boolean flag for whether session resulted in successful Stripe charge
         tests:
           - not_null
 
       - name: revenue_usd
         description: Revenue in USD if converted (null if not)
+
+      - name: subscription_status
+        description: FunnelFox subscription status (active, trialing, created, etc.)
 
       - name: currency
         description: Currency code if converted
@@ -274,6 +327,14 @@ models:
       - name: month_start_date
         description: First of the month
 
+      - name: is_organic
+        description: TRUE if payment has no FunnelFox subscription (direct/organic conversion)
+        tests:
+          - not_null
+
+      - name: description
+        description: Payment description from Stripe charge (e.g., "Subscription creation", "Subscription update")
+
       - name: funnel_name
         description: Funnel that drove this user
 
@@ -298,7 +359,7 @@ models:
   - name: mart_stripe_payments_daily
     description: |
       Daily aggregated Stripe payment metrics.
-      Grain: One row per day + funnel + card_country + card_brand.
+      Grain: One row per day + funnel + card_country + card_brand + description.
 
       Use cases:
       - Daily payment dashboard
@@ -319,6 +380,9 @@ models:
 
       - name: card_brand
         description: Card brand (null for all brands)
+
+      - name: description
+        description: Payment description from Stripe charge (e.g., "Subscription creation", "Subscription update")
 
       - name: total_attempts
         description: Total payment attempts
@@ -370,3 +434,459 @@ models:
 
       - name: recovery_rate
         description: Recovery rate (recovered / intents_with_retry)
+
+  - name: mart_funnel_performance
+    description: |
+      Funnel performance metrics by time period and traffic source.
+      Grain: One row per funnel + date + traffic source.
+
+      Conversion Metrics:
+      1. subscriptions_activated - Users who initiated checkout (subscription created)
+      2. trials_started          - Users who started a trial period
+      3. trials_converted        - Trial subscriptions with successful payment
+      4. direct_payments         - Non-trial subscriptions with successful payment
+      5. paid_successfully       - Users who completed payment (any successful charge)
+
+      Use cases:
+      - Daily/weekly/monthly funnel conversion reporting
+      - Traffic source performance (Facebook, Instagram, TikTok, organic)
+      - Facebook/Instagram attribution analysis
+      - Amplitude engagement correlation
+      - Multi-stage funnel analysis (attempt → trial → payment)
+    columns:
+      - name: date
+        description: Date (UTC, daily grain)
+        tests:
+          - not_null
+
+      - name: funnel_id
+        description: Funnel identifier
+        tests:
+          - not_null
+
+      - name: funnel_title
+        description: Funnel name
+
+      - name: funnel_type
+        description: Type of funnel
+
+      - name: traffic_source
+        description: Traffic source detected from user agent (facebook, instagram, tiktok, organic)
+        tests:
+          - not_null
+          - accepted_values:
+              values: ['facebook', 'instagram', 'tiktok', 'organic']
+
+      - name: total_sessions
+        description: Count of funnel sessions
+        tests:
+          - not_null
+
+      - name: unique_users
+        description: Distinct user profile count
+        tests:
+          - not_null
+
+      - name: subscriptions_activated
+        description: "Stage 1: Count of sessions where user initiated checkout (subscription created)"
+        tests:
+          - not_null
+
+      - name: trials_started
+        description: "Stage 2: Count of sessions where user started a trial"
+        tests:
+          - not_null
+
+      - name: trials_converted
+        description: "Stage 2b: Count of trial subscriptions with successful payment"
+        tests:
+          - not_null
+
+      - name: direct_payments
+        description: "Stage 3a: Count of non-trial subscriptions with successful payment"
+        tests:
+          - not_null
+
+      - name: paid_successfully
+        description: "Stage 3: Count of sessions with successful payment"
+        tests:
+          - not_null
+
+      - name: activation_rate
+        description: "Stage 1 rate: subscriptions_activated / total_sessions"
+
+      - name: trial_rate
+        description: "Stage 2 rate: trials_started / total_sessions"
+
+      - name: payment_rate
+        description: "Stage 3 rate: paid_successfully / total_sessions"
+
+      - name: conversions
+        description: "Legacy: Count of sessions with subscription (use paid_successfully for actual payments)"
+        tests:
+          - not_null
+
+      - name: conversion_rate
+        description: "Legacy: Conversion rate (conversions / total_sessions)"
+
+      - name: revenue_usd
+        description: Sum of revenue from successful payments (USD)
+
+      - name: avg_hours_to_convert
+        description: Average hours from session to payment
+
+      - name: users_with_amplitude_events
+        description: Count of users who have Amplitude events
+
+      - name: avg_events_per_user
+        description: Average Amplitude events per user
+
+  - name: mart_onboarding_analytics
+    description: |
+      Daily aggregate statistics of onboarding survey responses.
+      Grain: One row per date + funnel + question + answer.
+
+      Use cases:
+      - Dashboard visualizations of answer distributions
+      - Track survey response trends over time
+      - Compare responses across funnels
+      - All-time stats by aggregating: SUM(response_count) GROUP BY funnel_id, question, answer
+
+      Key questions included:
+      - Demographics: gender, age
+      - Context: reason, start_period, intensity
+      - Emotional state: overwhelmed_frequency, daily_emotional_experience, impact, emotional_support,
+        worry_about_future, disconnected, emotional_ups_downs, emotionally_alone, sleep_difficulty, overthink_about_past
+      - Goals: biggest_challenge, top_priority
+    columns:
+      - name: date
+        description: Date of responses (UTC)
+        tests:
+          - not_null
+
+      - name: funnel_id
+        description: Funnel identifier
+        tests:
+          - not_null
+
+      - name: funnel_title
+        description: Funnel name (from funnels table)
+
+      - name: question
+        description: Question identifier (e.g., 'reason', 'gender', 'intensity')
+        tests:
+          - not_null
+
+      - name: answer
+        description: Answer value provided by user
+        tests:
+          - not_null
+
+      - name: response_count
+        description: Number of unique users who gave this answer
+        tests:
+          - not_null
+
+      - name: question_total
+        description: Total responses for this question on this date/funnel
+        tests:
+          - not_null
+
+      - name: answer_percentage
+        description: Percentage of responses (0.0 - 1.0)
+
+  - name: mart_session_attribution
+    description: |
+      Session-level marketing attribution from Amplitude.
+      Grain: One row per FunnelFox session with first-touch attribution.
+
+      Use cases:
+      - Facebook/Google/TikTok campaign performance
+      - Traffic source breakdown (paid vs organic)
+      - UTM parameter analysis
+      - Click ID tracking for ad platform reconciliation
+
+      Data linkage:
+      - Joins FunnelFox sessions to Amplitude via fsid (session ID) in Page Location URL
+      - fsid parameter in Amplitude event_properties->>'[Amplitude] Page Location'
+      - Direct session-to-session link (most accurate)
+    columns:
+      - name: session_id
+        description: FunnelFox session ID (primary key)
+        tests:
+          - unique
+          - not_null
+
+      - name: profile_id
+        description: FunnelFox user profile ID
+        tests:
+          - not_null
+
+      - name: session_date
+        description: Date of session (UTC)
+        tests:
+          - not_null
+
+      - name: session_timestamp
+        description: Exact timestamp of session
+
+      - name: funnel_id
+        description: Funnel identifier
+
+      - name: funnel_title
+        description: Funnel name
+
+      - name: funnel_type
+        description: Type of funnel
+
+      - name: funnel_environment
+        description: Funnel environment (dev, staging, prod)
+
+      - name: country
+        description: User's country
+
+      - name: city
+        description: User's city
+
+      - name: funnel_origin
+        description: Original FunnelFox origin (funnel path/URL)
+
+      - name: utm_source
+        description: UTM source parameter (e.g., facebook, google)
+
+      - name: utm_medium
+        description: UTM medium parameter (e.g., cpc, paid, email)
+
+      - name: utm_campaign
+        description: UTM campaign name
+
+      - name: utm_content
+        description: UTM content (ad creative identifier)
+
+      - name: utm_term
+        description: UTM term (keywords)
+
+      - name: fbclid
+        description: Facebook Click ID (for FB Ads attribution)
+
+      - name: gclid
+        description: Google Click ID (for Google Ads attribution)
+
+      - name: msclkid
+        description: Microsoft Click ID (for Bing Ads attribution)
+
+      - name: ttclid
+        description: TikTok Click ID (for TikTok Ads attribution)
+
+      - name: initial_referrer
+        description: Initial referrer URL
+
+      - name: initial_referring_domain
+        description: Initial referring domain
+
+      - name: traffic_source_category
+        description: Categorized traffic source (Facebook Ads, Google Ads, Organic, etc.)
+        tests:
+          - accepted_values:
+              values: ['Facebook Ads', 'Google Ads', 'Microsoft Ads', 'TikTok Ads', 'Twitter/X Ads', 'LinkedIn Ads', 'Paid (Other)', 'Email', 'Organic Social', 'Organic Search', 'Referral', 'Direct', 'Other']
+
+      - name: is_paid_traffic
+        description: Boolean flag for paid traffic (has click ID or paid UTM medium)
+
+      - name: ad_platform
+        description: Ad platform detected from click ID (Facebook, Google, Microsoft, TikTok, Twitter, LinkedIn)
+
+      - name: has_attribution
+        description: Boolean flag indicating if session has any attribution data
+
+  - name: mart_marketing_attribution
+    description: |
+      Comprehensive session-level marketing attribution combining Facebook Ads,
+      FunnelFox sessions, Amplitude events, and Stripe payments.
+      Grain: One row per FunnelFox session.
+
+      Use cases:
+      - ROAS analysis (Return on Ad Spend)
+      - CAC calculation (Customer Acquisition Cost)
+      - Funnel performance by ad campaign/adset/ad
+      - Full attribution: ad spend → clicks → sessions → conversions → revenue
+      - Cohort LTV by acquisition source
+      - Amplitude engagement correlation with conversion
+
+      Data flow:
+      - Facebook Ads (spend/impressions/clicks by ad_id)
+      - FunnelFox Sessions (UTM params, fbclid, ad_id in origin)
+      - Amplitude Events (aggregated per session via ff_session_id)
+      - Stripe Payments (revenue via subscription linkage)
+    columns:
+      - name: session_id
+        description: FunnelFox session ID (primary key)
+        tests:
+          - unique
+          - not_null
+
+      - name: profile_id
+        description: User profile ID
+        tests:
+          - not_null
+
+      - name: session_timestamp
+        description: Session start timestamp
+
+      - name: session_date
+        description: Session date (UTC)
+        tests:
+          - not_null
+
+      - name: origin_raw
+        description: Original origin field, unmodified
+
+      - name: user_agent
+        description: Browser/device user agent
+
+      - name: ip_address
+        description: User IP address
+
+      - name: utm_source
+        description: Parsed UTM source (e.g., facebook, google)
+
+      - name: utm_medium
+        description: Parsed UTM medium (e.g., cpc, paid)
+
+      - name: utm_campaign
+        description: Parsed UTM campaign name
+
+      - name: utm_content
+        description: Parsed UTM content (ad creative identifier)
+
+      - name: utm_term
+        description: Parsed UTM term (keyword)
+
+      - name: fbclid
+        description: Facebook Click ID
+
+      - name: ad_id
+        description: Facebook ad ID from URL parameter
+
+      - name: facebook_ad_id
+        description: Matched Facebook ad ID
+
+      - name: facebook_adset_id
+        description: Facebook adset ID
+
+      - name: facebook_campaign_id
+        description: Facebook campaign ID
+
+      - name: ad_name
+        description: Facebook ad creative name
+
+      - name: adset_name
+        description: Facebook adset name
+
+      - name: campaign_name
+        description: Facebook campaign name
+
+      - name: campaign_objective
+        description: Facebook campaign objective
+
+      - name: total_events
+        description: Total Amplitude events in session
+        tests:
+          - not_null
+
+      - name: unique_event_types
+        description: Count of distinct Amplitude event types
+        tests:
+          - not_null
+
+      - name: first_event_at
+        description: First Amplitude event timestamp
+
+      - name: last_event_at
+        description: Last Amplitude event timestamp
+
+      - name: session_duration_seconds
+        description: Duration between first and last event
+
+      - name: event_types_list
+        description: Array of distinct event types
+
+      - name: event_counts_json
+        description: JSON object with event type counts
+
+      - name: amplitude_device_id
+        description: Amplitude device identifier
+
+      - name: amplitude_platform
+        description: Platform (iOS, Android, Web)
+
+      - name: amplitude_os_version
+        description: OS version
+
+      - name: amplitude_country
+        description: Country from Amplitude
+
+      - name: amplitude_city
+        description: City from Amplitude
+
+      - name: funnel_id
+        description: Funnel identifier
+
+      - name: funnel_title
+        description: Funnel name
+
+      - name: funnel_type
+        description: Funnel type
+
+      - name: funnel_environment
+        description: Funnel environment (dev, staging, prod)
+
+      - name: funnel_version
+        description: Funnel version at session time
+
+      - name: country
+        description: User's country (FunnelFox)
+
+      - name: city
+        description: User's city (FunnelFox)
+
+      - name: converted
+        description: Whether session resulted in subscription
+        tests:
+          - not_null
+
+      - name: conversion_timestamp
+        description: Timestamp of conversion
+
+      - name: hours_to_convert
+        description: Hours from session to conversion
+
+      - name: revenue_usd
+        description: Revenue from this session (USD)
+
+      - name: currency
+        description: Original currency code
+
+      - name: payment_status
+        description: Payment status (succeeded)
+
+      - name: subscription_id
+        description: Stripe subscription ID
+
+      - name: subscription_status
+        description: Subscription status
+
+      - name: is_paid_traffic
+        description: True if UTM medium indicates paid traffic
+        tests:
+          - not_null
+
+      - name: is_facebook_traffic
+        description: True if attributed to Facebook
+        tests:
+          - not_null
+
+      - name: attribution_channel
+        description: Categorized attribution channel (facebook_paid, google_paid, organic, etc.)
+        tests:
+          - not_null

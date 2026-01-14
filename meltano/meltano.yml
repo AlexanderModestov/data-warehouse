@@ -14,14 +14,47 @@ plugins:
       client_secret: ${STRIPE_API_KEY}
       start_date: '2024-01-01T00:00:00Z'
   - name: tap-amplitude
-    variant: meltanolabs
-    pip_url: git+https://github.com/MeltanoLabs/tap-amplitude.git
+    variant: airbyte
+    pip_url: git+https://github.com/meltanolabs/tap-airbyte-wrapper.git
+    executable: tap-airbyte
+    capabilities:
+      - state
+      - catalog
+      - discover
+      - about
+      - stream-maps
+    settings:
+      - name: airbyte_config.api_key
+        kind: password
+      - name: airbyte_config.secret_key
+        kind: password
+      - name: airbyte_config.start_date
+        kind: date_iso8601
+      - name: airbyte_spec.image
+        value: airbyte/source-amplitude
+      - name: airbyte_spec.tag
+        value: latest
     config:
-      api_key: ${AMPLITUDE_API_KEY}
-      secret_key: ${AMPLITUDE_SECRET_KEY}
-      start_date: '2025-07-01T00:00:00Z'
+      airbyte_config:
+        api_key: ${AMPLITUDE_API_KEY}
+        secret_key: ${AMPLITUDE_SECRET_KEY}
+        start_date: '2025-07-01T00:00:00Z'
     select:
-      - "events.*"
+      - "*.*"
+  - name: tap-appsflyer-ios
+    inherit_from: tap-appsflyer
+    config:
+      api_token: ${APPSFLYER_API_TOKEN}
+      app_id: ${APPSFLYER_IOS_APP_ID}
+      start_date: '2025-01-01T00:00:00Z'
+      organic_installs: true
+  - name: tap-appsflyer-android
+    inherit_from: tap-appsflyer
+    config:
+      api_token: ${APPSFLYER_API_TOKEN}
+      app_id: ${APPSFLYER_ANDROID_APP_ID}
+      start_date: '2025-01-01T00:00:00Z'
+      organic_installs: true
   - name: tap-appsflyer
     variant: singer-io
     pip_url: tap-appsflyer
@@ -59,17 +92,10 @@ plugins:
         stream_maps:
           events_list:
             __filter__: "False"
-          active_users:
-            __else__: null
-            timeline_hidden: int(timeline_hidden)
-          average_session_length:
-            __else__: null
-            timeline_hidden: int(timeline_hidden)
-          events:
-            __else__: null
-            timeline_hidden: int(timeline_hidden)
           "*":
-            __else__: null
+            __key_properties__: []
+            timeline_hidden: int(record.get('timeline_hidden')) if record.get('timeline_hidden') is not None else record.get('timeline_hidden')
+
   loaders:
   - name: target-postgres
     variant: meltanolabs
@@ -81,6 +107,7 @@ plugins:
       password: ${PG_ANALYTICS_PASSWORD}
       database: ${PG_ANALYTICS_DBNAME}
       default_target_schema: ${TARGET_SCHEMA}
+      ssl_mode: require
       flattening_enabled: true
       flattening_max_depth: 0
       batch_size_rows: 500

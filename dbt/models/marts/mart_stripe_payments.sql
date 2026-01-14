@@ -1,7 +1,6 @@
 {{
     config(
-        materialized='table',
-        schema='analytics'
+        materialized='table'
     )
 }}
 
@@ -16,6 +15,7 @@
     - Failure codes categorized into actionable groups
     - Retry attempts linked via payment_intent
     - Recovery tracking shows if failed intents eventually succeeded
+    - is_organic: TRUE when payment has no FunnelFox subscription (direct/organic conversion)
 */
 
 WITH stripe_charges AS (
@@ -28,12 +28,24 @@ WITH stripe_charges AS (
         status,
         created AS created_at,
         failure_code,
+        description,
         -- Extract card details from payment_method_details JSON
         (payment_method_details::json->'card')->>'brand' AS card_brand,
         (payment_method_details::json->'card')->>'country' AS card_country,
         -- Extract billing country
         (billing_details::json->'address')->>'country' AS billing_country
     FROM {{ source('raw_stripe', 'charges') }}
+    WHERE amount NOT IN (100, 200)  -- Exclude test payments ($1 and $2)
+),
+
+-- FunnelFox subscriptions to identify funnel vs organic traffic
+funnelfox_subscriptions AS (
+    SELECT DISTINCT
+        psp_id,
+        billing_interval
+    FROM {{ source('raw_funnelfox', 'subscriptions') }}
+    WHERE sandbox = FALSE
+      AND psp_id IS NOT NULL
 ),
 
 -- Categorize failures with recovery actions
@@ -97,95 +109,61 @@ charges_with_retry_info AS (
     LEFT JOIN intent_stats i ON c.payment_intent_id = i.payment_intent_id
 ),
 
--- Link to FunnelFox for funnel context
-funnelfox_subscriptions AS (
-    SELECT
-        psp_id,
-        profile_id
-    FROM {{ source('raw_funnelfox', 'subscriptions') }}
-    WHERE sandbox = FALSE
-),
-
-funnelfox_sessions AS (
-    SELECT DISTINCT ON (profile_id)
-        profile_id,
-        funnel_id,
-        origin AS traffic_source,
-        country AS session_country
-    FROM {{ source('raw_funnelfox', 'sessions') }}
-    ORDER BY profile_id, created_at ASC
-),
-
-funnels AS (
-    SELECT
-        id AS funnel_id,
-        title AS funnel_name
-    FROM {{ source('raw_funnelfox', 'funnels') }}
-),
-
--- Join to get profile_id and funnel context
-charges_with_funnel AS (
-    SELECT
-        c.*,
-        fsub.profile_id,
-        sess.funnel_id,
-        f.funnel_name,
-        sess.traffic_source,
-        sess.session_country
-    FROM charges_with_retry_info c
-    LEFT JOIN funnelfox_subscriptions fsub ON c.charge_id = fsub.psp_id
-    LEFT JOIN funnelfox_sessions sess ON fsub.profile_id = sess.profile_id
-    LEFT JOIN funnels f ON sess.funnel_id = f.funnel_id
-),
-
 -- Final output with all dimensions
 final AS (
     SELECT
         -- Identifiers
-        charge_id,
-        payment_intent_id,
-        customer_id,
-        profile_id,
+        c.charge_id,
+        c.payment_intent_id,
+        c.customer_id,
+        NULL::VARCHAR AS profile_id,  -- Not linked yet (requires deeper invoice linkage)
 
         -- Payment outcome
-        status,
-        CASE WHEN status = 'succeeded' THEN TRUE ELSE FALSE END AS is_successful,
-        amount_usd,
-        currency,
+        c.status,
+        CASE WHEN c.status = 'succeeded' THEN TRUE ELSE FALSE END AS is_successful,
+        c.amount_usd,
+        c.currency,
 
         -- Failure intelligence
-        failure_code,
-        failure_category,
-        recovery_action,
+        c.failure_code,
+        c.failure_category,
+        c.recovery_action,
 
         -- Retry tracking
-        attempt_number,
-        is_first_attempt,
-        is_final_attempt,
-        intent_eventually_succeeded,
+        c.attempt_number,
+        c.is_first_attempt,
+        c.is_final_attempt,
+        c.intent_eventually_succeeded,
 
         -- Time dimensions
-        created_at,
-        DATE(created_at AT TIME ZONE 'UTC') AS created_date,
-        EXTRACT(HOUR FROM created_at AT TIME ZONE 'UTC')::INT AS hour_of_day,
-        TRIM(TO_CHAR(created_at AT TIME ZONE 'UTC', 'Day')) AS day_of_week,
-        DATE_TRUNC('week', created_at AT TIME ZONE 'UTC')::DATE AS week_start_date,
-        DATE_TRUNC('month', created_at AT TIME ZONE 'UTC')::DATE AS month_start_date,
+        c.created_at,
+        DATE(c.created_at AT TIME ZONE 'UTC') AS created_date,
+        EXTRACT(HOUR FROM c.created_at AT TIME ZONE 'UTC')::INT AS hour_of_day,
+        TRIM(TO_CHAR(c.created_at AT TIME ZONE 'UTC', 'Day')) AS day_of_week,
+        DATE_TRUNC('week', c.created_at AT TIME ZONE 'UTC')::DATE AS week_start_date,
+        DATE_TRUNC('month', c.created_at AT TIME ZONE 'UTC')::DATE AS month_start_date,
 
-        -- Funnel dimensions
-        funnel_name,
-        traffic_source,
-        NULL AS traffic_medium,  -- Not available in current data
-        NULL AS traffic_campaign,  -- Not available in current data
+        -- Acquisition source
+        CASE WHEN ff.psp_id IS NULL THEN TRUE ELSE FALSE END AS is_organic,
+
+        -- Payment description from Stripe charge
+        c.description,
+
+        -- Funnel dimensions (not linked yet)
+        NULL::VARCHAR AS funnel_name,
+        NULL::VARCHAR AS traffic_source,
+        NULL::VARCHAR AS traffic_medium,
+        NULL::VARCHAR AS traffic_campaign,
 
         -- Geographic dimensions
-        card_country,
-        COALESCE(billing_country, session_country) AS customer_country,
+        c.card_country,
+        c.billing_country AS customer_country,
 
         -- Card details
-        card_brand
+        c.card_brand
 
-    FROM charges_with_funnel
+    FROM charges_with_retry_info c
+    LEFT JOIN funnelfox_subscriptions ff ON c.charge_id = ff.psp_id
 )
 
 SELECT * FROM final

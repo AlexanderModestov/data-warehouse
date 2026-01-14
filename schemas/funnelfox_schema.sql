@@ -53,6 +53,7 @@ CREATE TABLE IF NOT EXISTS raw_funnelfox.subscriptions (
     period_starts_at TIMESTAMP WITH TIME ZONE,
     price INTEGER,
     price_usd INTEGER,
+    profile_id TEXT,
     psp_id TEXT,
     renews BOOLEAN,
     sandbox BOOLEAN,
@@ -61,8 +62,34 @@ CREATE TABLE IF NOT EXISTS raw_funnelfox.subscriptions (
     loaded_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
+-- Profiles table
+CREATE TABLE IF NOT EXISTS raw_funnelfox.profiles (
+    id TEXT PRIMARY KEY,
+    data JSONB,
+    loaded_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Transactions table
+CREATE TABLE IF NOT EXISTS raw_funnelfox.transactions (
+    id TEXT PRIMARY KEY,
+    data JSONB,
+    loaded_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Session replies table (form responses from funnel interactions)
+CREATE TABLE IF NOT EXISTS raw_funnelfox.session_replies (
+    id TEXT PRIMARY KEY,
+    session_id TEXT NOT NULL,
+    data JSONB,
+    loaded_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (session_id) REFERENCES raw_funnelfox.sessions(id)
+);
+
 -- Create indexes for better query performance
 CREATE INDEX IF NOT EXISTS idx_sessions_funnel_id ON raw_funnelfox.sessions(funnel_id);
 CREATE INDEX IF NOT EXISTS idx_sessions_created_at ON raw_funnelfox.sessions(created_at);
+CREATE INDEX IF NOT EXISTS idx_sessions_profile_id ON raw_funnelfox.sessions(profile_id);
 CREATE INDEX IF NOT EXISTS idx_subscriptions_status ON raw_funnelfox.subscriptions(status);
 CREATE INDEX IF NOT EXISTS idx_subscriptions_created_at ON raw_funnelfox.subscriptions(created_at);
+CREATE INDEX IF NOT EXISTS idx_subscriptions_profile_id ON raw_funnelfox.subscriptions(profile_id);
+CREATE INDEX IF NOT EXISTS idx_session_replies_session_id ON raw_funnelfox.session_replies(session_id);

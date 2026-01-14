@@ -26,3 +26,9 @@ commands.txt
 
 # Temporary Claude files
 tmpclaude-*
+
+.claude
+deploy
+logs
+raw_funnelfox
+

@@ -1,0 +1,11 @@
+2026-01-13T11:21:20.851467Z [info     ] Environment 'dev' is active   
+2026-01-13T11:21:21.640145Z [info     ] Running job with name 'dev:tap-stripe-to-target-postgres' and run ID '019bb716-c47c-71e2-9ad9-41cedb4cbef0'
+2026-01-13T11:21:21.788206Z [info     ] Using systemdb state backend  
+2026-01-13T11:21:21.790808Z [warning  ] No state was found, complete import.
+2026-01-13T11:21:22.685199Z [info     ] Failed to canonicalize script path name=tap-stripe
+2026-01-13T11:21:25.139945Z [info     ] target-postgres v0.6.3, Meltano SDK v0.53.5 name=target-postgres
+2026-01-13T11:21:25.143904Z [info     ] Skipping parse of env var settings... name=target-postgres
+2026-01-13T11:21:25.145480Z [info     ] Reader 'target-postgres' completed processing 0 lines of input (0 schemas, 0 records, 0 batch manifests, 0 state messages, 0 activate version messages). name=target-postgres
+2026-01-13T11:21:25.345068Z [error    ] Extractor failed              
+2026-01-13T11:21:25.346118Z [error    ] Block run completed           
+2026-01-13T11:21:25.347421Z [info     ] Run completed                 

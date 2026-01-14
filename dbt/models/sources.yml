@@ -56,6 +56,10 @@ sources:
         columns:
           - name: id
             description: Stripe charge ID (links to FunnelFox psp_id)
+          - name: invoice
+            description: Stripe invoice ID (links to invoices.id)
+          - name: description
+            description: Payment description (e.g., "Subscription creation", "Subscription update")
           - name: amount
             description: Charge amount in cents
           - name: currency
@@ -85,28 +89,217 @@ sources:
           - name: created
             description: Subscription creation timestamp
 
+      - name: invoices
+        description: Stripe invoices linking charges to subscriptions
+        columns:
+          - name: id
+            description: Stripe invoice ID
+          - name: charge
+            description: Stripe charge ID (links to charges.id)
+          - name: customer
+            description: Stripe customer ID
+          - name: subscription
+            description: Stripe subscription ID
+          - name: billing_reason
+            description: Reason for billing (subscription_create, subscription_cycle, subscription_update, manual, etc.)
+          - name: status
+            description: Invoice status (paid, open, void, etc.)
+          - name: amount_due
+            description: Amount due in cents
+          - name: amount_paid
+            description: Amount paid in cents
+
   - name: raw_amplitude
-    description: Product events from Amplitude
+    description: Product events from Amplitude with marketing attribution
     schema: raw_amplitude
     tables:
       - name: events
-        description: User product events
+        description: User product events with first-touch attribution in user_properties
         columns:
           - name: user_id
             description: User ID (links to FunnelFox profile_id)
           - name: event_type
-            description: Type of event
+            description: Type of event (session_start, screen_presented, etc.)
           - name: event_time
             description: Event timestamp
           - name: device_id
-            description: Device identifier (fallback for identity resolution)
+            description: Device identifier (fnlfx_{profile_id} for FunnelFox users)
+          - name: user_properties
+            description: |
+              JSONB containing first-touch attribution data:
+              - initial_utm_source, initial_utm_medium, initial_utm_campaign
+              - initial_utm_content, initial_utm_term, initial_utm_id
+              - initial_fbclid (Facebook), initial_gclid (Google)
+              - initial_msclkid (Microsoft), initial_ttclid (TikTok)
+              - initial_twclid (Twitter), initial_li_fat_id (LinkedIn)
+              - initial_referrer, initial_referring_domain
+          - name: event_properties
+            description: JSONB containing event-specific properties (screen_id, onboarding, etc.)
+          - name: amplitude_id
+            description: Amplitude's unique user identifier
+          - name: session_id
+            description: Amplitude session identifier
+          - name: platform
+            description: Platform (Web, iOS, Android)
+          - name: country
+            description: User's country
+          - name: city
+            description: User's city
+          - name: device_type
+            description: Device type (iPhone, Android, Mac, Windows)
+          - name: os_name
+            description: Operating system or browser name
 
   - name: raw_facebook
     description: Facebook Ads data
     schema: raw_facebook
     tables:
-      - name: ad_statistics
-        description: Facebook ad performance metrics
+      - name: facebook_ad_statistics
+        description: Daily Facebook ad performance metrics
+        columns:
+          - name: id
+            description: Internal row ID
+          - name: facebook_ad_id
+            description: Facebook ad identifier
+          - name: facebook_adset_id
+            description: Facebook adset identifier
+          - name: facebook_campaign_id
+            description: Facebook campaign identifier
+          - name: facebook_account_id
+            description: Facebook ad account identifier
+          - name: report_date
+            description: Date of the metrics
+          - name: campaign_name
+            description: Campaign name
+          - name: adset_name
+            description: Adset name
+          - name: ad_name
+            description: Ad creative name
+          - name: impressions
+            description: Number of impressions
+          - name: clicks
+            description: Number of clicks
+          - name: unique_clicks
+            description: Number of unique clicks
+          - name: amount_spent
+            description: Amount spent in account currency
+          - name: cpc
+            description: Cost per click
+          - name: cpm
+            description: Cost per mille (1000 impressions)
+          - name: ctr
+            description: Click-through rate
+          - name: hook_rate
+            description: Video hook rate
+          - name: hold_rate
+            description: Video hold rate
+          - name: video_3_sec_plays
+            description: 3-second video plays
+          - name: thru_plays
+            description: Video thru-plays (watched to end)
+          - name: leads
+            description: Number of leads generated
+          - name: cost_per_lead
+            description: Cost per lead
+          - name: registrations_completed
+            description: Number of registrations completed
+          - name: cost_per_registration
+            description: Cost per registration
+          - name: purchases
+            description: Number of purchases attributed
+          - name: cost_per_purchase
+            description: Cost per purchase
+          - name: targeting_countries
+            description: Target countries for the ad
 
-      - name: campaigns
-        description: Facebook campaign details
+      - name: facebook_campaigns
+        description: Facebook campaign definitions
+        columns:
+          - name: id
+            description: Internal row ID
+          - name: facebook_campaign_id
+            description: Facebook campaign identifier
+          - name: facebook_account_id
+            description: Facebook ad account identifier
+          - name: campaign_name
+            description: Campaign name
+          - name: objective
+            description: Campaign objective
+          - name: status
+            description: Campaign status
+          - name: effective_status
+            description: Effective campaign status
+          - name: created_time
+            description: Campaign creation timestamp
+
+      - name: facebook_ads
+        description: Facebook ad creatives
+        columns:
+          - name: id
+            description: Internal row ID
+          - name: facebook_ad_id
+            description: Facebook ad identifier
+          - name: facebook_adset_id
+            description: Facebook adset identifier
+          - name: facebook_campaign_id
+            description: Facebook campaign identifier
+          - name: facebook_account_id
+            description: Facebook ad account identifier
+          - name: ad_name
+            description: Ad creative name
+          - name: status
+            description: Ad status
+          - name: effective_status
+            description: Effective ad status
+          - name: created_time
+            description: Ad creation timestamp
+
+      - name: facebook_adsets
+        description: Facebook adset configurations
+        columns:
+          - name: id
+            description: Internal row ID
+          - name: facebook_adset_id
+            description: Facebook adset identifier
+          - name: facebook_campaign_id
+            description: Facebook campaign identifier
+          - name: facebook_account_id
+            description: Facebook ad account identifier
+          - name: adset_name
+            description: Adset name
+          - name: status
+            description: Adset status
+          - name: effective_status
+            description: Effective adset status
+          - name: daily_budget
+            description: Daily budget
+          - name: lifetime_budget
+            description: Lifetime budget
+          - name: target_countries
+            description: Target countries
+          - name: created_time
+            description: Adset creation timestamp
+
+      - name: onboarding_replies
+        description: User onboarding survey responses from funnels
+        columns:
+          - name: id
+            description: Unique reply identifier
+          - name: funnel_id
+            description: Funnel identifier
+          - name: profile_id
+            description: User profile ID
+          - name: session_id
+            description: Session identifier
+          - name: screen_custom_id
+            description: Screen/question group identifier
+          - name: screen_index
+            description: Screen position in funnel flow
+          - name: element_custom_id
+            description: Question/element identifier
+          - name: element_type
+            description: UI element type (Options, etc.)
+          - name: value
+            description: User's answer value
+          - name: created_at
+            description: Response timestamp

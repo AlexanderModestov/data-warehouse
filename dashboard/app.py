@@ -62,12 +62,14 @@ def main():
     st.markdown("""
     Use the sidebar to navigate between pages:
 
-    - **Overview** - High-level metrics, charts, and failure analysis
+    - **Overview** - High-level payment metrics, charts, and failure analysis
     - **Payments** - Detailed payment explorer with filters and search
+    - **Subscriptions** - New subscription analytics by funnel, country, and billing plan
+    - **Funnels** - Conversion analytics and traffic source performance
 
     ---
 
-    ⚠️ **Development Mode:** Currently showing mock data.
+    Data is sourced from dbt analytics marts and refreshes every 5 minutes.
     """)
 
 

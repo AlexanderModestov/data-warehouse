@@ -61,6 +61,7 @@ def calc_delta(current, previous):
     return ((current - previous) / previous) * 100
 
 revenue_delta = calc_delta(current_metrics["total_revenue"], prev_metrics["total_revenue"])
+successful_delta = calc_delta(current_metrics["successful_count"], prev_metrics["successful_count"])
 rate_delta = calc_delta(current_metrics["success_rate"], prev_metrics["success_rate"])
 failed_delta = calc_delta(current_metrics["failed_count"], prev_metrics["failed_count"])
 attempts_delta = calc_delta(current_metrics["total_attempts"], prev_metrics["total_attempts"])
@@ -68,7 +69,7 @@ attempts_delta = calc_delta(current_metrics["total_attempts"], prev_metrics["tot
 st.markdown("---")
 
 # Metric cards
-col1, col2, col3, col4 = st.columns(4)
+col1, col2, col3, col4, col5 = st.columns(5)
 
 with col1:
     st.metric(
@@ -79,12 +80,19 @@ with col1:
 
 with col2:
     st.metric(
+        label="Successful Payments",
+        value=f"{current_metrics['successful_count']:,}",
+        delta=f"{successful_delta:+.1f}%",
+    )
+
+with col3:
+    st.metric(
         label="Success Rate",
         value=f"{current_metrics['success_rate']*100:.1f}%",
         delta=f"{rate_delta:+.1f}%",
     )
 
-with col3:
+with col4:
     st.metric(
         label="Failed Payments",
         value=f"{current_metrics['failed_count']:,}",
@@ -92,7 +100,7 @@ with col3:
         delta_color="inverse",
     )
 
-with col4:
+with col5:
     st.metric(
         label="Total Attempts",
         value=f"{current_metrics['total_attempts']:,}",

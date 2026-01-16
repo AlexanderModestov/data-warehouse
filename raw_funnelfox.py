@@ -495,10 +495,25 @@ def insert_session_replies(conn, session_id: str, data: list[dict]) -> None:
     conn.commit()
 
 
-def fetch_session_replies(conn, sessions: list[dict]) -> int:
+def ensure_connection(conn):
+    """Check if connection is alive, reconnect if needed."""
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT 1")
+        return conn
+    except (psycopg2.OperationalError, psycopg2.InterfaceError):
+        print("  Reconnecting to database...")
+        try:
+            conn.close()
+        except Exception:
+            pass
+        return get_db_connection()
+
+
+def fetch_session_replies(conn, sessions: list[dict]) -> tuple[int, any]:
     """
     Fetch replies for all sessions.
-    Returns total number of replies fetched.
+    Returns (total_replies, connection) - connection may be new if reconnected.
     """
     total_replies = 0
     total_sessions = len(sessions)
@@ -561,6 +576,8 @@ def fetch_session_replies(conn, sessions: list[dict]) -> int:
                 replies = data.get("data", [])
 
             if replies:
+                # Ensure connection is alive before inserting
+                conn = ensure_connection(conn)
                 insert_session_replies(conn, session_id, replies)
                 total_replies += len(replies)
                 sessions_with_replies += 1
@@ -572,7 +589,7 @@ def fetch_session_replies(conn, sessions: list[dict]) -> int:
         time.sleep(base_delay)
 
     print(f"\nSession replies complete: {total_replies} replies from {sessions_with_replies} sessions")
-    return total_replies
+    return total_replies, conn
 
 
 def main():
@@ -659,7 +676,7 @@ def main():
         # Fetch session replies (requires individual API calls per session)
         if sessions_data and not args.skip_replies:
             print("\nExporting session_replies ...")
-            fetch_session_replies(conn, sessions_data)
+            _, conn = fetch_session_replies(conn, sessions_data)
         elif args.skip_replies:
             print("\nSkipping session replies (--skip-replies flag)")
 

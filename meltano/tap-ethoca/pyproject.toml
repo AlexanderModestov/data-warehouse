@@ -1,0 +1,24 @@
+[build-system]
+requires = ["poetry-core>=1.0.0"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.poetry]
+name = "tap-ethoca"
+version = "0.1.0"
+description = "Singer tap for Ethoca Alerts (Mastercard), built with the Meltano SDK"
+authors = ["Reluvia <dev@reluvia.com>"]
+keywords = ["ELT", "Ethoca", "Mastercard", "Singer", "Meltano"]
+license = "Apache-2.0"
+
+[tool.poetry.dependencies]
+python = ">=3.9,<3.13"
+singer-sdk = ">=0.36.0"
+requests = ">=2.31.0"
+oauth1-auth = ">=1.1.0"
+cryptography = ">=41.0.0"
+
+[tool.poetry.scripts]
+tap-ethoca = "tap_ethoca.tap:TapEthoca.cli"
+
+[tool.poetry.group.dev.dependencies]
+pytest = ">=7.4.0"

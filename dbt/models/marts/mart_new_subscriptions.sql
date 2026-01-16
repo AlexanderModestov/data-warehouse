@@ -14,10 +14,12 @@
     1. Stripe charges - Primary source of truth for all payments
     2. Stripe subscriptions - Session linkage via metadata->>'ff_session_id'
     3. FunnelFox sessions/funnels - Funnel context when available
+    4. FunnelFox subscriptions - Billing interval info (1 month, 3 month, etc.)
 
     Business Logic:
     - Revenue from Stripe charges (amount / 100.0)
     - Exclude test payments ($1, $2)
+    - Billing interval from FunnelFox subscriptions via psp_id linkage
 */
 
 WITH stripe_subscription_charges AS (
@@ -69,6 +71,22 @@ funnels AS (
     FROM {{ source('raw_funnelfox', 'funnels') }}
 ),
 
+-- FunnelFox subscriptions with billing info
+funnelfox_subscriptions AS (
+    SELECT
+        id AS ff_subscription_id,
+        psp_id,  -- Links to Stripe charge ID
+        profile_id AS subscription_profile_id,
+        status AS subscription_status,
+        payment_provider,
+        billing_interval,
+        billing_interval_count,
+        price / 100.0 AS subscription_price_usd  -- Convert cents to USD
+    FROM {{ source('raw_funnelfox', 'subscriptions') }}
+    WHERE sandbox = false
+      AND psp_id IS NOT NULL
+),
+
 -- Join all sources (may create duplicates, handled by DISTINCT ON below)
 subscriptions_joined AS (
     SELECT
@@ -80,7 +98,7 @@ subscriptions_joined AS (
         sc.currency,
         sc.card_brand,
         sc.card_country,
-        sess.session_profile_id,
+        COALESCE(ffs.subscription_profile_id, sess.session_profile_id) AS session_profile_id,
         sess.country AS session_country,
         sess.city,
         sess.origin AS traffic_source,
@@ -88,8 +106,18 @@ subscriptions_joined AS (
         f.funnel_id,
         f.funnel_title,
         f.funnel_type,
-        f.funnel_environment
+        f.funnel_environment,
+        -- FunnelFox subscription fields
+        ffs.ff_subscription_id,
+        ffs.subscription_status,
+        ffs.payment_provider,
+        ffs.billing_interval,
+        ffs.billing_interval_count,
+        ffs.subscription_price_usd
     FROM stripe_subscription_charges sc
+    -- Join FunnelFox subscriptions via psp_id (Stripe charge ID)
+    LEFT JOIN funnelfox_subscriptions ffs
+        ON sc.charge_id = ffs.psp_id
     LEFT JOIN stripe_subscriptions_with_session ss
         ON sc.customer_id = ss.customer
         AND sc.subscription_timestamp >= ss.stripe_subscription_created_at
@@ -105,18 +133,18 @@ SELECT DISTINCT ON (charge_id)
     charge_id AS subscription_id,
     customer_id,
     session_profile_id AS user_profile_id,
-    NULL::text AS funnelfox_subscription_id,
+    ff_subscription_id AS funnelfox_subscription_id,
 
     subscription_date,
     subscription_timestamp,
     revenue_usd,
     currency,
-    NULL::numeric AS subscription_price_usd,
+    subscription_price_usd,
 
-    NULL::text AS payment_provider,
-    NULL::text AS billing_interval,
-    NULL::int AS billing_interval_count,
-    NULL::text AS subscription_status,
+    payment_provider,
+    billing_interval,
+    billing_interval_count,
+    subscription_status,
 
     funnel_id,
     funnel_title,
@@ -134,8 +162,11 @@ SELECT DISTINCT ON (charge_id)
         ELSE NULL
     END AS hours_to_convert,
 
-    'one_time' AS payment_type,  -- Default since no billing info available
-    TRUE AS is_organic,  -- All organic since FunnelFox subscriptions not available
+    CASE
+        WHEN billing_interval IS NOT NULL THEN 'recurring'
+        ELSE 'one_time'
+    END AS payment_type,
+    ff_subscription_id IS NULL AS is_organic,
     card_brand,
     card_country
 

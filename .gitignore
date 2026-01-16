@@ -13,6 +13,7 @@ __pycache__/
 # Meltano local state (using Postgres on Heroku)
 meltano/.meltano/
 meltano/output/
+dashboard
 
 # dbt artifacts (regenerated on each run)
 dbt/target/

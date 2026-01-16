@@ -4,27 +4,35 @@ models:
   - name: mart_new_subscriptions
     description: |
       New subscriptions with revenue and acquisition context.
-      Grain: One row per new subscription (first successful charge).
+      Grain: One row per new subscription (Stripe charge with description = 'Subscription creation').
+
+      Data Sources (priority order):
+      1. Stripe charges - Primary source of truth for all payments
+      2. FunnelFox subscriptions - Additional context when available (via psp_id linkage)
+      3. Stripe subscriptions - Session linkage via metadata->>'ff_session_id'
+      4. FunnelFox sessions/funnels - Funnel context when available
 
       Use cases:
       - Daily subscription revenue reporting
       - Funnel performance analysis
       - Geographic revenue breakdown
       - Time-to-convert analysis
+      - Organic vs funnel-driven subscription tracking
     columns:
       - name: subscription_id
-        description: Stripe charge ID for the first payment (primary key)
+        description: Stripe charge ID for the subscription payment (primary key)
         tests:
           - unique
           - not_null
 
+      - name: customer_id
+        description: Stripe customer ID
+
       - name: user_profile_id
-        description: FunnelFox profile ID (master user identifier)
-        tests:
-          - not_null
+        description: FunnelFox profile ID (may be null for organic subscriptions)
 
       - name: funnelfox_subscription_id
-        description: FunnelFox subscription identifier
+        description: FunnelFox subscription identifier (null for organic)
 
       - name: subscription_date
         description: Date of subscription (UTC)
@@ -35,7 +43,7 @@ models:
         description: Exact timestamp of subscription (UTC)
 
       - name: revenue_usd
-        description: Revenue in USD (converted from cents)
+        description: Revenue in USD from Stripe charge (source of truth)
         tests:
           - not_null
 
@@ -43,7 +51,7 @@ models:
         description: Currency code for the charge
 
       - name: subscription_price_usd
-        description: Subscription price from FunnelFox (USD)
+        description: Subscription price from FunnelFox (USD), may differ from actual charge
 
       - name: payment_provider
         description: Payment provider (e.g., stripe, apple, google)
@@ -58,7 +66,7 @@ models:
         description: FunnelFox subscription status
 
       - name: funnel_id
-        description: ID of the funnel that led to conversion
+        description: ID of the funnel that led to conversion (null for organic)
 
       - name: funnel_title
         description: Name of the funnel
@@ -70,7 +78,7 @@ models:
         description: Funnel environment (dev, staging, prod)
 
       - name: country
-        description: User's country from session
+        description: User's country (from session or card country)
 
       - name: city
         description: User's city from session
@@ -90,6 +98,17 @@ models:
           - not_null
           - accepted_values:
               values: ['subscription', 'one_time']
+
+      - name: is_organic
+        description: TRUE when no FunnelFox subscription exists (direct/organic conversion)
+        tests:
+          - not_null
+
+      - name: card_brand
+        description: Card brand (visa, mastercard, amex, etc.)
+
+      - name: card_country
+        description: Card country of issue
 
   - name: mart_funnel_conversions
     description: |
@@ -266,6 +285,15 @@ models:
       - name: currency
         description: Original currency code
 
+      - name: refunded_amount_usd
+        description: Amount refunded in USD (from Stripe amount_refunded field)
+
+      - name: has_refund
+        description: True if this charge has been refunded
+
+      - name: net_revenue_usd
+        description: Net revenue after refunds (amount_usd - refunded_amount_usd)
+
       - name: failure_code
         description: Raw Stripe failure code (null if succeeded)
 
@@ -304,6 +332,18 @@ models:
         description: True if any attempt in this payment intent succeeded
         tests:
           - not_null
+
+      - name: ff_session_id
+        description: FunnelFox session ID linked via Stripe subscription metadata
+
+      - name: session_eventually_succeeded
+        description: True if any payment in this funnel session succeeded
+
+      - name: is_recovered_failure
+        description: True if this was a failed first attempt but the session eventually had a successful payment
+
+      - name: is_lost_payment
+        description: True if this payment failed and the session never had a successful payment
 
       - name: created_at
         description: Payment attempt timestamp (UTC)
@@ -407,6 +447,30 @@ models:
 
       - name: failed_revenue_usd
         description: Sum of failed payment amounts (potential lost revenue)
+
+      - name: refunded_usd
+        description: Sum of refunded amounts (USD)
+
+      - name: refund_count
+        description: Count of payments that have been refunded
+
+      - name: net_revenue_usd
+        description: Net revenue after refunds (gross_revenue_usd - refunded_usd)
+
+      - name: refund_rate
+        description: Refund rate (refunded_usd / gross_revenue_usd)
+
+      - name: lost_payments
+        description: Count of failed payments where the session never had a successful payment
+
+      - name: lost_revenue_usd
+        description: Sum of lost payment amounts (failed with no session recovery)
+
+      - name: recovered_payments
+        description: Count of failed first attempts where session eventually succeeded
+
+      - name: recovered_revenue_usd
+        description: Sum of recovered payment amounts
 
       - name: failures_insufficient_funds
         description: Count of insufficient funds failures
@@ -888,5 +952,131 @@ models:
 
       - name: attribution_channel
         description: Categorized attribution channel (facebook_paid, google_paid, organic, etc.)
+        tests:
+          - not_null
+
+  - name: mart_stripe_risk_metrics
+    description: |
+      Daily risk metrics including fraud warnings, chargebacks, and refunds.
+      Grain: One row per day.
+
+      Use cases:
+      - Daily Visa/Mastercard program compliance monitoring
+      - VAMP (Visa Acquirer Monitoring Program) metrics tracking
+      - Chargeback rate tracking by card network
+      - Early Fraud Warning (EFW) monitoring
+      - RDR (Rapid Dispute Resolution) tracking
+      - Refund volume analysis
+
+      Key metrics:
+      - EFW count/amount: Early Fraud Warnings received
+      - Chargeback counts: By Mastercard, Visa (excl RDR), Other
+      - Chargeback rates: Disputes today / successful txns previous 30 days (rolling)
+      - VAMP: EFW count + Visa chargebacks (Visa's fraud monitoring threshold)
+      - RDR: Visa disputes resolved through Rapid Dispute Resolution
+      - Refunds: Total refund count and amount
+    columns:
+      - name: date
+        description: The date
+        tests:
+          - unique
+          - not_null
+
+      - name: efw_count
+        description: Count of Early Fraud Warnings received
+        tests:
+          - not_null
+
+      - name: efw_amount_usd
+        description: Total USD amount of charges with EFW
+        tests:
+          - not_null
+
+      - name: chb_count_mastercard
+        description: Count of Mastercard chargebacks (disputes opened)
+        tests:
+          - not_null
+
+      - name: chb_amount_mastercard
+        description: USD amount of Mastercard chargebacks
+        tests:
+          - not_null
+
+      - name: chb_count_visa
+        description: Count of Visa chargebacks (disputes opened, excluding RDR)
+        tests:
+          - not_null
+
+      - name: chb_amount_visa
+        description: USD amount of Visa chargebacks (excluding RDR)
+        tests:
+          - not_null
+
+      - name: chb_count_other
+        description: Count of chargebacks for other card brands
+        tests:
+          - not_null
+
+      - name: chb_amount_other
+        description: USD amount of chargebacks for other card brands
+        tests:
+          - not_null
+
+      - name: total_chb_count
+        description: Total count of all chargebacks
+        tests:
+          - not_null
+
+      - name: total_chb_amount_usd
+        description: Total USD amount of all chargebacks
+        tests:
+          - not_null
+
+      - name: rdr_count
+        description: Count of Visa RDR (Rapid Dispute Resolution) disputes
+        tests:
+          - not_null
+
+      - name: rdr_amount_usd
+        description: USD amount of Visa RDR disputes
+        tests:
+          - not_null
+
+      - name: chb_rate_mastercard
+        description: Mastercard chargeback rate (disputes today / successful MC txns previous 30 days)
+
+      - name: chb_rate_visa
+        description: Visa chargeback rate (disputes today / successful Visa txns previous 30 days)
+
+      - name: vamp_count
+        description: VAMP count (EFW count + Visa chargeback count) - Visa monitoring threshold
+        tests:
+          - not_null
+
+      - name: vamp_rate
+        description: VAMP rate (VAMP count / Visa successful transactions this month)
+
+      - name: refund_count
+        description: Count of processed refunds
+        tests:
+          - not_null
+
+      - name: refund_amount_usd
+        description: Total USD amount of refunds
+        tests:
+          - not_null
+
+      - name: mc_successful_count
+        description: Count of successful Mastercard transactions (for reference)
+        tests:
+          - not_null
+
+      - name: visa_successful_count
+        description: Count of successful Visa transactions (for reference)
+        tests:
+          - not_null
+
+      - name: total_successful_count
+        description: Count of all successful transactions (for reference)
         tests:
           - not_null

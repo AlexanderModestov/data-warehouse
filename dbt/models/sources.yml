@@ -109,6 +109,68 @@ sources:
           - name: amount_paid
             description: Amount paid in cents
 
+      - name: disputes
+        description: Stripe disputes (chargebacks)
+        columns:
+          - name: id
+            description: Stripe dispute ID
+          - name: charge
+            description: Related charge ID
+          - name: amount
+            description: Dispute amount in cents
+          - name: currency
+            description: Currency code
+          - name: status
+            description: Dispute status (needs_response, under_review, won, lost, etc.)
+          - name: reason
+            description: Dispute reason (duplicate, fraudulent, product_not_received, etc.)
+          - name: created
+            description: Dispute creation timestamp
+          - name: payment_intent
+            description: Related payment intent ID
+          - name: payment_method_details
+            description: JSON containing card details (brand, network, etc.)
+          - name: is_charge_refundable
+            description: Whether the charge is refundable
+          - name: network_reason_code
+            description: Network-specific reason code
+
+      - name: early_fraud_warnings
+        description: Stripe Early Fraud Warnings (EFW)
+        columns:
+          - name: id
+            description: Early Fraud Warning ID
+          - name: charge
+            description: Related charge ID
+          - name: fraud_type
+            description: Type of fraud (card_never_received, fraudulent_card_application, made_with_counterfeit_card, made_with_lost_card, made_with_stolen_card, misc, unauthorized_use_of_card)
+          - name: actionable
+            description: Whether action can be taken
+          - name: created
+            description: EFW creation timestamp
+          - name: payment_intent
+            description: Related payment intent ID
+
+      - name: refunds
+        description: Stripe refunds
+        columns:
+          - name: id
+            description: Refund ID
+          - name: charge
+            description: Related charge ID
+          - name: amount
+            description: Refund amount in cents
+          - name: currency
+            description: Currency code
+          - name: status
+            description: Refund status (pending, succeeded, failed, canceled)
+          - name: created
+            description: Refund creation timestamp
+          - name: reason
+            description: Refund reason
+          - name: payment_intent
+            description: Related payment intent ID
+
   - name: raw_amplitude
     description: Product events from Amplitude with marketing attribution
     schema: raw_amplitude

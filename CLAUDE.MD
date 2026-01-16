@@ -80,6 +80,45 @@ Stripe subscription records.
 | `status` | Subscription status |
 | `created` | Subscription creation timestamp |
 
+#### raw_stripe.disputes
+Stripe disputes (chargebacks).
+
+| Column | Description |
+|--------|-------------|
+| `id` | Stripe dispute ID |
+| `charge` | Related charge ID |
+| `amount` | Dispute amount in cents |
+| `currency` | Currency code |
+| `status` | Dispute status (needs_response, under_review, won, lost) |
+| `reason` | Dispute reason (duplicate, fraudulent, product_not_received, etc.) |
+| `created` | Dispute creation timestamp |
+| `payment_method_details` | JSON: card details (brand, network) |
+| `network_reason_code` | Network-specific reason code |
+
+#### raw_stripe.early_fraud_warnings
+Stripe Early Fraud Warnings (EFW).
+
+| Column | Description |
+|--------|-------------|
+| `id` | Early Fraud Warning ID |
+| `charge` | Related charge ID |
+| `fraud_type` | Type of fraud (unauthorized_use_of_card, made_with_stolen_card, etc.) |
+| `actionable` | Whether action can be taken |
+| `created` | EFW creation timestamp |
+
+#### raw_stripe.refunds
+Stripe refunds.
+
+| Column | Description |
+|--------|-------------|
+| `id` | Refund ID |
+| `charge` | Related charge ID |
+| `amount` | Refund amount in cents |
+| `currency` | Currency code |
+| `status` | Refund status (pending, succeeded, failed, canceled) |
+| `created` | Refund creation timestamp |
+| `reason` | Refund reason |
+
 #### raw_amplitude.events
 Product events from Amplitude.
 
@@ -207,6 +246,35 @@ Product events from Amplitude.
 | `time_to_conversion_hours` | | Hours to convert |
 | `conversion_timestamp` | | Conversion timestamp |
 | `conversion_date` | | Conversion date |
+
+#### mart_stripe_risk_metrics
+**Grain:** One row per day
+**Primary Key:** `date`
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `date` | PK | The date |
+| `efw_count` | not null | Count of Early Fraud Warnings received |
+| `efw_amount_usd` | not null | Total USD amount of charges with EFW |
+| `chb_count_mastercard` | not null | Count of Mastercard chargebacks |
+| `chb_amount_mastercard` | not null | USD amount of Mastercard chargebacks |
+| `chb_count_visa` | not null | Count of Visa chargebacks (excluding RDR) |
+| `chb_amount_visa` | not null | USD amount of Visa chargebacks |
+| `chb_count_other` | not null | Count of chargebacks for other card brands |
+| `chb_amount_other` | not null | USD amount of other chargebacks |
+| `total_chb_count` | not null | Total count of all chargebacks |
+| `total_chb_amount_usd` | not null | Total USD amount of all chargebacks |
+| `rdr_count` | not null | Count of Visa RDR disputes |
+| `rdr_amount_usd` | not null | USD amount of Visa RDR disputes |
+| `chb_rate_mastercard` | | MC disputes today / MC success prev 30 days |
+| `chb_rate_visa` | | Visa disputes today / Visa success prev 30 days |
+| `vamp_count` | not null | VAMP count (EFW + Visa chargebacks) |
+| `vamp_rate` | | VAMP count / Visa successful transactions |
+| `refund_count` | not null | Count of processed refunds |
+| `refund_amount_usd` | not null | Total USD amount of refunds |
+| `mc_successful_count` | not null | Mastercard successful transactions |
+| `visa_successful_count` | not null | Visa successful transactions |
+| `total_successful_count` | not null | Total successful transactions |
 
 ---
 

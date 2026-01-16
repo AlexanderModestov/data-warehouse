@@ -40,6 +40,17 @@ daily_metrics AS (
         SUM(CASE WHEN is_successful THEN amount_usd ELSE 0 END) AS gross_revenue_usd,
         SUM(CASE WHEN NOT is_successful THEN amount_usd ELSE 0 END) AS failed_revenue_usd,
 
+        -- Refund metrics
+        SUM(CASE WHEN is_successful THEN refunded_amount_usd ELSE 0 END) AS refunded_usd,
+        SUM(CASE WHEN has_refund THEN 1 ELSE 0 END) AS refund_count,
+        SUM(CASE WHEN is_successful THEN net_revenue_usd ELSE 0 END) AS net_revenue_usd,
+
+        -- Session recovery metrics
+        SUM(CASE WHEN is_lost_payment THEN 1 ELSE 0 END) AS lost_payments,
+        SUM(CASE WHEN is_lost_payment THEN amount_usd ELSE 0 END) AS lost_revenue_usd,
+        SUM(CASE WHEN is_recovered_failure THEN 1 ELSE 0 END) AS recovered_payments,
+        SUM(CASE WHEN is_recovered_failure THEN amount_usd ELSE 0 END) AS recovered_revenue_usd,
+
         -- Failure breakdown
         SUM(CASE WHEN failure_category = 'insufficient_funds' THEN 1 ELSE 0 END) AS failures_insufficient_funds,
         SUM(CASE WHEN failure_category = 'card_declined' THEN 1 ELSE 0 END) AS failures_card_declined,
@@ -122,6 +133,21 @@ final AS (
         dm.gross_revenue_usd,
         dm.failed_revenue_usd,
 
+        -- Refund metrics
+        dm.refunded_usd,
+        dm.refund_count,
+        dm.net_revenue_usd,
+        CASE
+            WHEN dm.gross_revenue_usd > 0 THEN dm.refunded_usd / dm.gross_revenue_usd
+            ELSE NULL
+        END AS refund_rate,
+
+        -- Session recovery metrics
+        dm.lost_payments,
+        dm.lost_revenue_usd,
+        dm.recovered_payments,
+        dm.recovered_revenue_usd,
+
         -- Failure breakdown
         dm.failures_insufficient_funds,
         dm.failures_card_declined,
@@ -130,7 +156,7 @@ final AS (
         dm.failures_technical_error,
         dm.failures_other,
 
-        -- Recovery
+        -- Intent-level recovery
         COALESCE(rm.intents_with_retry, 0) AS intents_with_retry,
         COALESCE(rm.intents_recovered, 0) AS intents_recovered,
         CASE

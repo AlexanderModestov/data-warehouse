@@ -26,6 +26,38 @@ HEADERS = {
 OUTPUT_DIR = Path("raw_funnelfox")
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
+CURSOR_FILE = OUTPUT_DIR / "cursors.json"
+
+
+def load_cursors() -> dict:
+    """Load saved cursors from file."""
+    if CURSOR_FILE.exists():
+        with CURSOR_FILE.open("r", encoding="utf-8") as f:
+            return json.load(f)
+    return {}
+
+
+def save_cursor(endpoint: str, cursor: str | None, count: int, offset: int | None = None):
+    """Save cursor/offset for an endpoint to resume later."""
+    cursors = load_cursors()
+    state = {"count": count}
+    if cursor:
+        state["cursor"] = cursor
+    if offset is not None:
+        state["offset"] = offset
+    cursors[endpoint] = state
+    with CURSOR_FILE.open("w", encoding="utf-8") as f:
+        json.dump(cursors, f, indent=2)
+
+
+def clear_cursor(endpoint: str):
+    """Clear saved cursor for an endpoint after successful completion."""
+    cursors = load_cursors()
+    if endpoint in cursors:
+        del cursors[endpoint]
+        with CURSOR_FILE.open("w", encoding="utf-8") as f:
+            json.dump(cursors, f, indent=2)
+
 # PostgreSQL connection parameters
 PG_CONFIG = {
     "host": os.environ.get("PG_ANALYTICS_HOST"),
@@ -36,82 +68,119 @@ PG_CONFIG = {
 }
 
 
-def fetch_all(endpoint: str, params: dict | None = None, conn=None, insert_func=None) -> list[dict]:
+def fetch_page(endpoint: str, params: dict, max_retries: int = 5) -> dict | None:
+    """
+    Fetch a single page from the API with retry logic.
+    Returns the JSON response or None if all retries failed.
+    """
+    url = f"{BASE_URL}/{endpoint}"
+    resp = None
+
+    for retry in range(max_retries):
+        try:
+            resp = requests.get(url, headers=HEADERS, params=params, timeout=120)
+            resp.raise_for_status()
+            _ = resp.content  # Force read to catch chunked encoding errors
+            return resp.json()
+        except (
+            requests.exceptions.Timeout,
+            requests.exceptions.HTTPError,
+            requests.exceptions.ConnectionError,
+            requests.exceptions.ChunkedEncodingError,
+        ) as e:
+            if isinstance(e, requests.exceptions.HTTPError) and resp is not None:
+                if resp.status_code not in [408, 429, 500, 502, 503, 504, 524]:
+                    raise
+
+            if retry < max_retries - 1:
+                wait_time = min(5 * (2 ** retry), 60)
+                if isinstance(e, requests.exceptions.ChunkedEncodingError):
+                    error_msg = "connection broken"
+                elif isinstance(e, requests.exceptions.HTTPError) and resp is not None:
+                    error_msg = f"{resp.status_code} error"
+                elif isinstance(e, requests.exceptions.ConnectionError):
+                    error_msg = "connection error"
+                else:
+                    error_msg = "timeout"
+                print(f"    {error_msg}, waiting {wait_time}s... (attempt {retry + 2}/{max_retries})")
+                time.sleep(wait_time)
+            else:
+                return None
+    return None
+
+
+def fetch_all(endpoint: str, params: dict | None = None, conn=None, insert_func=None, resume: bool = True) -> list[dict]:
     """
     Универсальная функция выгрузки всех страниц для list-эндпоинта.
     endpoint: например, 'funnels', 'products', 'sessions', 'subscriptions'
     conn: optional database connection for incremental insertion
     insert_func: optional function to insert data incrementally
+    resume: whether to resume from saved cursor
     """
     if params is None:
         params = {}
 
     items: list[dict] = []
     cursor = None
-    offset = 0
     page_num = 0
-    max_retries = 10  # Больше попыток
-    base_page_delay = 3.0  # Базовая задержка 3 секунды между страницами
-    use_offset_pagination = False
+    base_page_delay = 5.0  # Increased delay to avoid 408 timeouts
+    total_count = 0
+    completed = False
+    # Use smaller limit to avoid 408 timeouts on heavy endpoints like sessions
+    limit = 50
+
+    # FunnelFox API uses cursor-based pagination only (no offset support)
+    # First probe to get total count for progress reporting
+    print(f"  Checking total count...")
+    probe = fetch_page(endpoint, {"limit": 1})
+    api_total = None
+    if probe:
+        pagination = probe.get("pagination") or {}
+        api_total = pagination.get("total")
+        if api_total:
+            print(f"  API reports {api_total} total items")
+
+    # Check for saved state to resume (for cursor-based pagination)
+    if resume:
+        cursors = load_cursors()
+        if endpoint in cursors:
+            saved = cursors[endpoint]
+            total_count = saved.get("count", 0)
+            if "cursor" in saved and saved["cursor"]:
+                cursor = saved["cursor"]
+                print(f"  Resuming from cursor (previously loaded {total_count} items)")
+
+    # Use cursor-based pagination
+    print(f"  Using cursor pagination (limit={limit})...")
 
     while True:
         page_num += 1
         query = params.copy()
-        limit = query.get("limit", 50)  # Уменьшили с 100 до 50 (рекомендация API)
         query["limit"] = limit
 
-        if use_offset_pagination:
-            query["offset"] = offset
-        elif cursor:
+        if cursor:
             query["cursor"] = cursor
 
-        url = f"{BASE_URL}/{endpoint}"
+        data = fetch_page(endpoint, query)
 
-        # Retry logic with aggressive backoff
-        resp = None
-        for retry in range(max_retries):
-            try:
-                resp = requests.get(url, headers=HEADERS, params=query, timeout=180)
-                resp.raise_for_status()
-                # Force read content to catch chunked encoding errors
-                _ = resp.content
-                break
-            except (
-                requests.exceptions.Timeout,
-                requests.exceptions.HTTPError,
-                requests.exceptions.ConnectionError,
-                requests.exceptions.ChunkedEncodingError,  # Сервер обрывает соединение
-            ) as e:
-                if isinstance(e, requests.exceptions.HTTPError) and resp is not None and resp.status_code not in [408, 429, 500, 502, 503, 504, 524]:
-                    raise
+        if data is None:
+            print(f"  Failed on page {page_num} after all retries")
+            print(f"  Successfully loaded {len(items)} items this run ({total_count + len(items)} total)")
+            if cursor:
+                save_cursor(endpoint, cursor, total_count + len(items))
+                print(f"  Progress saved. Run again to resume.")
+            break
 
-                if retry < max_retries - 1:
-                    # Агрессивный backoff: 5, 10, 20, 40, 60, 60, 60...
-                    wait_time = min(5 * (2 ** retry), 60)
-                    if isinstance(e, requests.exceptions.ChunkedEncodingError):
-                        error_msg = "connection broken (chunked)"
-                    elif isinstance(e, requests.exceptions.HTTPError) and resp is not None:
-                        error_msg = f"{resp.status_code} error"
-                    elif isinstance(e, requests.exceptions.ConnectionError):
-                        error_msg = "connection error"
-                    else:
-                        error_msg = "timeout"
-                    print(f"  {error_msg} on page {page_num}, waiting {wait_time}s... (attempt {retry + 2}/{max_retries})")
-                    time.sleep(wait_time)
-                else:
-                    print(f"  Failed after {max_retries} retries, stopping pagination here")
-                    print(f"  Successfully loaded {len(items)} items before stopping")
-                    return items
-
-        data = resp.json()
         page_items = data.get("data", [])
         items.extend(page_items)
 
         pagination = data.get("pagination") or {}
         has_more = pagination.get("has_more")
-        cursor = pagination.get("next_cursor") or pagination.get("cursor")
+        next_cursor = pagination.get("next_cursor") or pagination.get("cursor")
+        api_total = pagination.get("total")
 
-        print(f"  Page {page_num}: loaded {len(page_items)} items, has_more: {has_more}, total so far: {len(items)}")
+        print(f"  Page {page_num}: loaded {len(page_items)} items, has_more: {has_more}, total so far: {total_count + len(items)}" +
+              (f" (API total: {api_total})" if api_total else ""))
 
         if conn and insert_func and page_items:
             try:
@@ -120,27 +189,30 @@ def fetch_all(endpoint: str, params: dict | None = None, conn=None, insert_func=
             except Exception as e:
                 print(f"  Warning: Failed to insert page {page_num}: {e}")
 
+        # Save cursor after each successful page
+        if next_cursor and has_more:
+            save_cursor(endpoint, next_cursor, total_count + len(items))
+
         if not has_more:
+            completed = True
             break
 
-        if has_more and not cursor and not use_offset_pagination:
-            print(f"  WARNING: No cursor provided. Switching to offset pagination...")
-            use_offset_pagination = True
-            offset = len(items)
-            time.sleep(base_page_delay)
-            continue
+        if not next_cursor:
+            print(f"  WARNING: No cursor provided but has_more=True. Stopping.")
+            break
 
-        if use_offset_pagination:
-            offset += limit
-            if len(page_items) < limit:
-                print(f"  Received {len(page_items)} items (less than limit {limit}), stopping.")
-                break
+        cursor = next_cursor
 
-        # Адаптивная задержка: каждые 10 страниц увеличиваем паузу
-        adaptive_delay = base_page_delay + (page_num // 10)
+        # Adaptive delay
+        delay = base_page_delay + (page_num // 10)
         if page_num % 10 == 0:
-            print(f"  [Throttling] Pausing {adaptive_delay}s after {page_num} pages...")
-        time.sleep(adaptive_delay)
+            print(f"  [Throttling] Pausing {delay}s after {page_num} pages...")
+        time.sleep(delay)
+
+    # Clear saved state on successful completion
+    if completed:
+        clear_cursor(endpoint)
+        print(f"  Completed! Total items: {total_count + len(items)}")
 
     return items
 
@@ -155,6 +227,26 @@ def save_json(name: str, data: list[dict]) -> None:
 def get_db_connection():
     """Create and return a PostgreSQL connection."""
     return psycopg2.connect(**PG_CONFIG)
+
+
+def get_latest_timestamp(conn, table: str, column: str = "created_at") -> str | None:
+    """
+    Get the latest timestamp from a table for incremental loading.
+    Returns ISO format string or None if table is empty.
+    """
+    with conn.cursor() as cur:
+        cur.execute(f"SELECT MAX({column}) FROM raw_funnelfox.{table}")
+        result = cur.fetchone()[0]
+        if result:
+            return result.isoformat()
+    return None
+
+
+def get_record_count(conn, table: str) -> int:
+    """Get the count of records in a table."""
+    with conn.cursor() as cur:
+        cur.execute(f"SELECT COUNT(*) FROM raw_funnelfox.{table}")
+        return cur.fetchone()[0]
 
 
 def init_schema(conn):
@@ -322,7 +414,8 @@ def insert_subscriptions(conn, data: list[dict]) -> None:
                 item.get("period_starts_at"),
                 item.get("price"),
                 item.get("price_usd"),
-                item.get("profile_id"),
+                # API returns profile as nested object: {"profile": {"id": "..."}}
+                item.get("profile", {}).get("id") if isinstance(item.get("profile"), dict) else item.get("profile_id"),
                 item.get("psp_id"),
                 item.get("renews"),
                 item.get("sandbox"),
@@ -461,7 +554,11 @@ def fetch_session_replies(conn, sessions: list[dict]) -> int:
 
         try:
             data = resp.json()
-            replies = data.get("data", [])
+            # API may return list directly or wrapped in {"data": [...]}
+            if isinstance(data, list):
+                replies = data
+            else:
+                replies = data.get("data", [])
 
             if replies:
                 insert_session_replies(conn, session_id, replies)
@@ -479,6 +576,19 @@ def fetch_session_replies(conn, sessions: list[dict]) -> int:
 
 
 def main():
+    import argparse
+    parser = argparse.ArgumentParser(description="FunnelFox data loader")
+    parser.add_argument("--reset", action="store_true", help="Clear saved cursors and start fresh")
+    parser.add_argument("--skip-replies", action="store_true", help="Skip fetching session replies")
+    parser.add_argument("--only", type=str, help="Only export specific endpoint (sessions, subscriptions, etc.)")
+    args = parser.parse_args()
+
+    # Clear cursors if requested
+    if args.reset:
+        if CURSOR_FILE.exists():
+            CURSOR_FILE.unlink()
+            print("Cursors cleared.")
+
     # Что именно выгружать — можно менять список
     endpoints = {
         "funnels": "funnels",              # список всех воронок
@@ -488,6 +598,14 @@ def main():
         "profiles": "profiles",            # профили пользователей
         "transactions": "transactions",    # транзакции
     }
+
+    # Filter to specific endpoint if requested
+    if args.only:
+        if args.only not in endpoints:
+            print(f"Error: Unknown endpoint '{args.only}'")
+            print(f"Available: {', '.join(endpoints.keys())}")
+            return
+        endpoints = {args.only: endpoints[args.only]}
 
     # Database insertion functions mapping
     insert_functions = {
@@ -509,24 +627,41 @@ def main():
 
         sessions_data = []  # Store sessions for fetching replies later
 
+        # Endpoint-specific params
+        endpoint_params = {
+            "funnels": {"filter[deleted]": "true"},  # Include deleted funnels for FK integrity
+        }
+
         for name, endpoint in endpoints.items():
             print(f"\nExporting {name} ...")
 
-            # Fetch with incremental insertion
             insert_func = insert_functions.get(name)
-            data = fetch_all(endpoint, conn=conn, insert_func=insert_func)
+            params = endpoint_params.get(name, {})
+
+            # Check for existing cursor
+            cursors = load_cursors()
+            if endpoint in cursors:
+                print(f"  Found saved cursor - will resume from where we left off")
+
+            # Fetch with cursor-based resumability
+            data = fetch_all(endpoint, params=params, conn=conn, insert_func=insert_func, resume=True)
 
             # Save to JSON (backup)
-            save_json(name, data)
+            if data:
+                save_json(name, data)
+            else:
+                print(f"  No new data to save for {name}")
 
             # Keep sessions data for replies fetching
             if name == "sessions":
                 sessions_data = data
 
         # Fetch session replies (requires individual API calls per session)
-        if sessions_data:
+        if sessions_data and not args.skip_replies:
             print("\nExporting session_replies ...")
             fetch_session_replies(conn, sessions_data)
+        elif args.skip_replies:
+            print("\nSkipping session replies (--skip-replies flag)")
 
         print("\nAll data successfully loaded into PostgreSQL!")
 

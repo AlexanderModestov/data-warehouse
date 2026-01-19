@@ -1080,3 +1080,379 @@ models:
         description: Count of all successful transactions (for reference)
         tests:
           - not_null
+
+  - name: mart_marketing_performance
+    description: |
+      Comprehensive marketing performance metrics combining Facebook Ads
+      statistics with attributed conversions and revenue for ROAS analysis.
+      Grain: One row per date + campaign + adset + ad.
+
+      Data Sources:
+      - Facebook Ads statistics (spend, impressions, clicks, video metrics)
+      - Facebook campaign/adset/ad metadata
+      - Attributed conversions from mart_marketing_attribution (real revenue)
+
+      Use cases:
+      - Daily/weekly/monthly marketing performance dashboards
+      - ROAS and CAC analysis by campaign/adset/ad
+      - Funnel conversion rate tracking (clicks → registrations → purchases)
+      - Video engagement metrics (hook rate, hold rate)
+      - LTV and ROI projections
+    columns:
+      - name: date
+        description: Date of the metrics
+        tests:
+          - not_null
+
+      - name: facebook_campaign_id
+        description: Facebook campaign identifier
+        tests:
+          - not_null
+
+      - name: facebook_adset_id
+        description: Facebook adset identifier
+        tests:
+          - not_null
+
+      - name: facebook_ad_id
+        description: Facebook ad identifier
+        tests:
+          - not_null
+
+      - name: funnel_id
+        description: FunnelFox funnel identifier (from attributed sessions)
+
+      - name: funnel_title
+        description: FunnelFox funnel name/title
+
+      - name: campaign_name
+        description: Facebook campaign name
+
+      - name: adset_name
+        description: Facebook adset name
+
+      - name: ad_name
+        description: Facebook ad creative name
+
+      - name: campaign_objective
+        description: Campaign objective (CONVERSIONS, LEAD_GENERATION, etc.)
+
+      - name: campaign_status
+        description: Campaign status (ACTIVE, PAUSED, etc.)
+
+      - name: adset_status
+        description: Adset status
+
+      - name: ad_status
+        description: Ad status
+
+      - name: target_countries
+        description: Target countries for the adset
+
+      - name: spend_usd
+        description: Total spend in USD
+        tests:
+          - not_null
+
+      - name: impressions
+        description: Total impressions
+        tests:
+          - not_null
+
+      - name: clicks
+        description: Total clicks
+        tests:
+          - not_null
+
+      - name: unique_clicks
+        description: Unique clicks
+
+      - name: cpm
+        description: Cost per mille (spend / impressions * 1000)
+
+      - name: cpc
+        description: Cost per click (spend / clicks)
+
+      - name: ctr
+        description: Click-through rate (clicks / impressions)
+
+      - name: video_3_sec_plays
+        description: 3-second video plays
+
+      - name: thru_plays
+        description: Video thru-plays (watched to completion)
+
+      - name: hook_rate
+        description: Video hook rate (3-sec plays / impressions)
+
+      - name: hold_rate
+        description: Video hold rate (thru-plays / 3-sec plays)
+
+      - name: views_to_click_rate
+        description: Views to click rate (clicks / impressions)
+
+      - name: registrations
+        description: Facebook-attributed registrations
+
+      - name: purchases
+        description: Facebook-attributed purchases
+
+      - name: leads
+        description: Facebook-attributed leads
+
+      - name: clicks_to_regs_rate
+        description: Clicks to registrations rate
+
+      - name: regs_to_purchase_rate
+        description: Registrations to purchase rate
+
+      - name: clicks_to_purchase_rate
+        description: Clicks to purchase rate
+
+      - name: cost_per_registration
+        description: Cost per registration (spend / registrations)
+
+      - name: attributed_sessions
+        description: Sessions attributed to this ad (from our attribution)
+
+      - name: attributed_users
+        description: Unique users attributed to this ad
+
+      - name: attributed_conversions
+        description: Conversions attributed to this ad (from our attribution)
+
+      - name: revenue_usd
+        description: Revenue attributed to this ad (from our attribution)
+
+      - name: roas
+        description: Return on Ad Spend (revenue / spend)
+
+      - name: arpu
+        description: Average Revenue Per User (revenue / conversions)
+
+      - name: cac
+        description: Customer Acquisition Cost (spend / conversions)
+
+      - name: roi_6m
+        description: Projected 6-month ROI ((ARPU * 6 - CAC) / CAC)
+
+      - name: roi_12m
+        description: Projected 12-month ROI ((ARPU * 12 - CAC) / CAC)
+
+      - name: ltv_12m
+        description: Projected 12-month LTV (ARPU * 12)
+
+  - name: mart_master_charges
+    description: |
+      Master charges mart - single source of truth for all Stripe payment analytics.
+      Grain: One row per Stripe charge.
+
+      Data Sources:
+      - raw_stripe.charges: Core payment data
+      - raw_stripe.refunds: Refund details
+      - raw_funnelfox.subscriptions: FunnelFox linkage (nullable)
+      - raw_funnelfox.sessions: User session data (nullable)
+      - raw_funnelfox.funnels: Funnel metadata (nullable)
+
+      Use cases:
+      - Payment success/failure analysis
+      - Risk metrics (disputes, fraud blocks, high-risk transactions)
+      - Refund tracking
+      - Subscription analytics
+      - Funnel attribution
+      - Replaces: mart_stripe_payments, mart_stripe_risk_metrics, mart_new_subscriptions
+    columns:
+      - name: charge_id
+        description: Stripe charge ID (primary key)
+        tests:
+          - unique
+          - not_null
+
+      - name: payment_intent_id
+        description: Payment intent ID (groups retry attempts)
+
+      - name: customer_id
+        description: Stripe customer ID
+
+      - name: invoice_id
+        description: Stripe invoice ID
+
+      - name: amount_usd
+        description: Payment amount in USD
+        tests:
+          - not_null
+
+      - name: currency
+        description: Original currency code
+
+      - name: status
+        description: Payment status (succeeded, failed, pending)
+        tests:
+          - not_null
+          - accepted_values:
+              values: ['succeeded', 'failed', 'pending']
+
+      - name: is_successful
+        description: Boolean flag for successful payment
+        tests:
+          - not_null
+
+      - name: failure_code
+        description: Raw Stripe failure code
+
+      - name: failure_category
+        description: Categorized failure type
+        tests:
+          - accepted_values:
+              values: ['insufficient_funds', 'card_declined', 'fraud_block', 'authentication_required', 'expired_card', 'invalid_card', 'processing_error', 'technical_error']
+              config:
+                where: "status = 'failed'"
+
+      - name: recovery_action
+        description: Suggested recovery action
+        tests:
+          - accepted_values:
+              values: ['retry_eligible', 'request_new_card', 'verify_3ds', 'contact_support']
+              config:
+                where: "status = 'failed'"
+
+      - name: card_brand
+        description: Card brand (visa, mastercard, etc.)
+
+      - name: card_country
+        description: Card issuing country
+
+      - name: card_funding
+        description: Card funding type (credit, debit, prepaid)
+
+      - name: card_last4
+        description: Last 4 digits of card
+
+      - name: customer_country
+        description: Customer billing country
+
+      - name: risk_level
+        description: Stripe Radar risk level (normal, elevated, highest)
+
+      - name: risk_score
+        description: Stripe Radar risk score (0-100)
+
+      - name: outcome_type
+        description: Payment outcome type (authorized, blocked, etc.)
+
+      - name: outcome_reason
+        description: Outcome reason if blocked
+
+      - name: is_blocked
+        description: True if payment was blocked by Stripe Radar
+        tests:
+          - not_null
+
+      - name: is_fraud_decline
+        description: True if declined for fraud-related reasons
+        tests:
+          - not_null
+
+      - name: is_disputed
+        description: True if charge has a dispute/chargeback
+        tests:
+          - not_null
+
+      - name: dispute_id
+        description: Stripe dispute ID if disputed
+
+      - name: refund_count
+        description: Number of refunds on this charge
+        tests:
+          - not_null
+
+      - name: refund_amount_usd
+        description: Total refunded amount in USD
+        tests:
+          - not_null
+
+      - name: is_fully_refunded
+        description: True if fully refunded
+        tests:
+          - not_null
+
+      - name: refund_ratio
+        description: Refund amount / charge amount
+
+      - name: latest_refund_date
+        description: Date of most recent refund
+
+      - name: latest_refund_reason
+        description: Reason for most recent refund
+
+      - name: profile_id
+        description: FunnelFox user profile ID (nullable)
+
+      - name: ff_subscription_id
+        description: FunnelFox subscription ID (nullable)
+
+      - name: ff_subscription_status
+        description: FunnelFox subscription status (nullable)
+
+      - name: payment_provider
+        description: Payment provider (stripe, apple, google)
+
+      - name: billing_interval
+        description: Billing interval (month, year, etc.)
+
+      - name: billing_interval_count
+        description: Number of billing intervals
+
+      - name: subscription_price_usd
+        description: FunnelFox subscription price in USD
+
+      - name: funnel_id
+        description: Funnel ID (nullable)
+
+      - name: funnel_title
+        description: Funnel name (nullable)
+
+      - name: funnel_type
+        description: Funnel type (nullable)
+
+      - name: funnel_environment
+        description: Funnel environment (nullable)
+
+      - name: country
+        description: User country from session (nullable)
+
+      - name: city
+        description: User city from session (nullable)
+
+      - name: traffic_source
+        description: Traffic source/origin (nullable)
+
+      - name: first_session_at
+        description: First session timestamp (nullable)
+
+      - name: created_at
+        description: Charge creation timestamp
+        tests:
+          - not_null
+
+      - name: created_date
+        description: Charge date (UTC)
+        tests:
+          - not_null
+
+      - name: hour_of_day
+        description: Hour of day (0-23)
+
+      - name: day_of_week
+        description: Day of week name
+
+      - name: week_start_date
+        description: Monday of the week
+
+      - name: month_start_date
+        description: First of the month
+
+      - name: is_organic
+        description: True if no FunnelFox linkage (organic/direct)
+        tests:
+          - not_null

@@ -11,8 +11,7 @@
     Grain: One row per Stripe charge (charge_id)
 
     Data Sources:
-    - raw_stripe.charges: Core payment data
-    - raw_stripe.refunds: Refund details
+    - raw_stripe.charges: Core payment data (includes embedded refund data)
     - raw_funnelfox.subscriptions: FunnelFox linkage (nullable)
     - raw_funnelfox.sessions: User session data (nullable)
     - raw_funnelfox.funnels: Funnel metadata (nullable)
@@ -22,7 +21,7 @@
     - Exclude test payments ($1, $2)
     - FunnelFox linkage via subscriptions.psp_id = charges.id
     - Risk metrics from outcome JSON (EFW proxy approach)
-    - Refund aggregates + latest refund details from refunds table
+    - Refund data from embedded fields on charges (refunded, amount_refunded)
 */
 
 WITH stripe_charges AS (
@@ -70,26 +69,6 @@ WITH stripe_charges AS (
 
     FROM {{ source('raw_stripe', 'charges') }}
     WHERE amount NOT IN (100, 200)  -- Exclude test payments ($1, $2)
-),
-
--- Aggregate refund data per charge with latest refund details
-refund_details AS (
-    SELECT
-        charge AS charge_id,
-        COUNT(*) AS refund_count,
-        SUM(amount) / 100.0 AS total_refund_amount_usd,
-        MAX(created) AS latest_refund_date,
-        -- Get latest refund reason using subquery
-        (
-            SELECT reason
-            FROM {{ source('raw_stripe', 'refunds') }} r2
-            WHERE r2.charge = r.charge
-            ORDER BY r2.created DESC
-            LIMIT 1
-        ) AS latest_refund_reason
-    FROM {{ source('raw_stripe', 'refunds') }} r
-    WHERE status = 'succeeded'
-    GROUP BY charge
 ),
 
 -- FunnelFox subscriptions for linkage
@@ -199,17 +178,15 @@ SELECT
     c.is_disputed,
     c.dispute_id,
 
-    -- Refund fields (prefer refunds table, fallback to embedded)
-    COALESCE(ref.refund_count, 0) AS refund_count,
-    COALESCE(ref.total_refund_amount_usd, c.refund_amount_embedded) AS refund_amount_usd,
-    COALESCE(ref.total_refund_amount_usd, c.refund_amount_embedded) >= c.amount_usd AS is_fully_refunded,
+    -- Refund fields (from embedded data on charges)
+    c.has_refund_embedded AS is_refunded,
+    c.refund_amount_embedded AS refund_amount_usd,
+    c.refund_amount_embedded >= c.amount_usd AS is_fully_refunded,
     CASE
         WHEN c.amount_usd > 0
-        THEN COALESCE(ref.total_refund_amount_usd, c.refund_amount_embedded) / c.amount_usd
+        THEN c.refund_amount_embedded / c.amount_usd
         ELSE 0
     END AS refund_ratio,
-    ref.latest_refund_date,
-    ref.latest_refund_reason,
 
     -- FunnelFox linkage (nullable)
     ff.profile_id,
@@ -242,10 +219,6 @@ SELECT
     ff.ff_subscription_id IS NULL AS is_organic
 
 FROM charges_with_categories c
-
--- Refund details
-LEFT JOIN refund_details ref
-    ON ref.charge_id = c.charge_id
 
 -- FunnelFox subscription linkage
 LEFT JOIN funnelfox_subscriptions ff

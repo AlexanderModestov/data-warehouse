@@ -1361,8 +1361,8 @@ models:
       - name: dispute_id
         description: Stripe dispute ID if disputed
 
-      - name: refund_count
-        description: Number of refunds on this charge
+      - name: is_refunded
+        description: True if charge has been refunded
         tests:
           - not_null
 
@@ -1378,12 +1378,6 @@ models:
 
       - name: refund_ratio
         description: Refund amount / charge amount
-
-      - name: latest_refund_date
-        description: Date of most recent refund
-
-      - name: latest_refund_reason
-        description: Reason for most recent refund
 
       - name: profile_id
         description: FunnelFox user profile ID (nullable)

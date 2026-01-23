@@ -7,189 +7,207 @@
 /*
     Marketing Attribution Mart
 
-    Purpose: Session-level marketing analytics combining Facebook Ads, FunnelFox sessions,
-             Amplitude events, and Stripe payments for ROAS, CAC, and funnel analysis.
-    Grain: One row per FunnelFox session
+    Purpose: Session-level marketing attribution combining FunnelFox sessions,
+             Stripe payments, Amplitude events, and Facebook campaigns.
+    Grain: One row per session (includes all sessions, with or without payments)
 
     Data Flow:
-    - Facebook Ads (spend/impressions/clicks)
-    - FunnelFox Sessions (with UTM params, fbclid, ad_id)
-    - Amplitude Events (aggregated per session via ff_session_id)
-    - Stripe Payments (revenue)
+    1. FunnelFox Sessions (base) -> LEFT JOIN Stripe Subscriptions & Charges
+    2. LEFT JOIN Amplitude (device_id = 'fnlfx_' + profile_id) for UTM attribution
+    3. LEFT JOIN Facebook campaigns for campaign metadata
 
-    Key Joins:
-    - Session origin → Parse UTM params → Match to Facebook campaigns/ads
-    - Amplitude event_properties->>'ff_session_id' → Session id
-    - Session → Subscription → Payment (existing flow)
+    Payment Filters (when joined):
+    - Only successful charges (status = 'succeeded')
+    - Not refunded (refunded IS FALSE)
+    - Subscription creation or invoice payments only
+
+    IMPORTANT: Revenue is sourced from actual Stripe charges (not FunnelFox prices)
+    to ensure consistency with mart_new_subscriptions and accurate ROAS calculations.
 */
 
 -- =============================================================================
--- 1. BASE SESSIONS WITH PARSED UTM PARAMETERS
+-- 1. BASE: All Sessions with optional payment data (LEFT JOINs)
 -- =============================================================================
-WITH funnelfox_sessions AS (
-    SELECT
-        id AS session_id,
-        profile_id,
-        funnel_id,
-        created_at AS session_created_at,
-        country,
-        city,
-        origin,
-        user_agent,
-        ip,
-        funnel_version
-    FROM {{ source('raw_funnelfox', 'sessions') }}
+
+/*
+    PAYMENT LINKAGE STRATEGY:
+
+    Session -> Subscription (via ff_session_id) -> Charge (via time proximity)
+
+    We link subscriptions to their first successful charge using:
+    1. Same customer (subscription.customer = charge.customer)
+    2. Charge created within 120 seconds of subscription
+    3. Charge description = 'Subscription creation'
+    4. Charge status = 'succeeded' and not refunded
+
+    Revenue = actual charge amount (NOT plan amount)
+    This ensures we only count revenue for payments that actually succeeded.
+*/
+
+-- Match subscriptions to their first successful charge via time proximity
+WITH subscription_charges AS (
+    SELECT DISTINCT ON (subs.id)
+        subs.id AS subscription_id,
+        subs.metadata->>'ff_session_id' AS ff_session_id,
+        subs.customer,
+        subs.status AS subscription_status,
+        subs.created AS subscription_created_at,
+        subs.plan->>'interval' AS billing_interval,
+        (subs.plan->>'interval_count')::int AS billing_interval_count,
+        subs.plan->>'currency' AS currency,
+        ch.id AS charge_id,
+        ch.amount / 100.0 AS charge_amount_usd
+    FROM {{ source('raw_stripe', 'subscriptions') }} subs
+    INNER JOIN {{ source('raw_stripe', 'charges') }} ch
+        ON ch.customer = subs.customer
+        AND ch.status = 'succeeded'
+        AND ch.refunded = FALSE
+        AND ch.description = 'Subscription creation'
+        AND ABS(EXTRACT(EPOCH FROM (ch.created - subs.created))) < 120
+    WHERE subs.metadata->>'ff_session_id' IS NOT NULL
+    ORDER BY subs.id, ABS(EXTRACT(EPOCH FROM (ch.created - subs.created)))
 ),
 
-parsed_sessions AS (
+session_payments AS (
     SELECT
-        session_id,
-        profile_id,
-        funnel_id,
-        session_created_at,
-        country,
-        city,
-        origin AS origin_raw,
-        user_agent,
-        ip AS ip_address,
-        funnel_version,
+        -- Session data
+        fnlfx_ss.id AS session_id,
+        fnlfx_ss.profile_id,
+        fnlfx_ss.funnel_id,
+        fnlfx_ss.created_at AS session_created_at,
+        fnlfx_ss.country,
+        fnlfx_ss.city,
+        fnlfx_ss.origin,
+        fnlfx_ss.user_agent,
+        fnlfx_ss.ip,
+        fnlfx_ss.funnel_version,
 
-        -- Parse UTM parameters from origin field
-        -- Returns NULL if parameter not found
+        -- Stripe subscription data
+        COALESCE(sc.subscription_id, subs.id) AS stripe_subscription_id,
+        COALESCE(sc.subscription_status, subs.status) AS stripe_subscription_status,
+        COALESCE(sc.subscription_created_at, subs.created) AS stripe_subscription_created_at,
+        COALESCE(sc.customer, subs.customer) AS stripe_customer_id,
+
+        -- Charge data
+        sc.charge_id AS stripe_charge_id,
+
+        -- Revenue from actual charge (only if > $2 to exclude test transactions)
+        -- Only assign revenue to FIRST session per charge to avoid double-counting
         CASE
-            WHEN origin LIKE '%utm_source=%'
-            THEN SPLIT_PART(SPLIT_PART(origin, 'utm_source=', 2), '&', 1)
+            WHEN sc.charge_amount_usd > 2.0
+                 AND ROW_NUMBER() OVER (
+                     PARTITION BY sc.charge_id
+                     ORDER BY fnlfx_ss.created_at ASC
+                 ) = 1
+            THEN sc.charge_amount_usd
             ELSE NULL
-        END AS utm_source,
+        END AS revenue_usd,
 
-        CASE
-            WHEN origin LIKE '%utm_medium=%'
-            THEN SPLIT_PART(SPLIT_PART(origin, 'utm_medium=', 2), '&', 1)
-            ELSE NULL
-        END AS utm_medium,
+        -- Subscription plan details
+        COALESCE(sc.billing_interval, subs.plan->>'interval') AS billing_interval,
+        COALESCE(sc.billing_interval_count, (subs.plan->>'interval_count')::int) AS billing_interval_count,
+        COALESCE(sc.currency, subs.plan->>'currency') AS currency,
 
-        CASE
-            WHEN origin LIKE '%utm_campaign=%'
-            THEN SPLIT_PART(SPLIT_PART(origin, 'utm_campaign=', 2), '&', 1)
-            ELSE NULL
-        END AS utm_campaign,
+        -- FunnelFox subscription data (for additional info)
+        fs.id AS funnelfox_subscription_id,
+        fs.status AS funnelfox_subscription_status,
+        fs.payment_provider,
+        fs.created_at AS funnelfox_subscription_created_at,
 
-        CASE
-            WHEN origin LIKE '%utm_content=%'
-            THEN SPLIT_PART(SPLIT_PART(origin, 'utm_content=', 2), '&', 1)
-            ELSE NULL
-        END AS utm_content,
+        -- Funnel metadata
+        fnl.title AS funnel_title,
+        fnl.type AS funnel_type,
+        fnl.environment AS funnel_environment,
+        fnl.alias AS funnel_alias
 
-        CASE
-            WHEN origin LIKE '%utm_term=%'
-            THEN SPLIT_PART(SPLIT_PART(origin, 'utm_term=', 2), '&', 1)
-            ELSE NULL
-        END AS utm_term,
+    FROM {{ source('raw_funnelfox', 'sessions') }} fnlfx_ss
 
-        CASE
-            WHEN origin LIKE '%fbclid=%'
-            THEN SPLIT_PART(SPLIT_PART(origin, 'fbclid=', 2), '&', 1)
-            ELSE NULL
-        END AS fbclid,
+    -- LEFT JOIN funnel metadata
+    LEFT JOIN {{ source('raw_funnelfox', 'funnels') }} fnl
+        ON fnlfx_ss.funnel_id = fnl.id
 
-        CASE
-            WHEN origin LIKE '%ad_id=%'
-            THEN SPLIT_PART(SPLIT_PART(origin, 'ad_id=', 2), '&', 1)
-            ELSE NULL
-        END AS ad_id_from_url
+    -- LEFT JOIN Stripe subscriptions via ff_session_id in metadata
+    LEFT JOIN {{ source('raw_stripe', 'subscriptions') }} subs
+        ON subs.metadata->>'ff_session_id' = fnlfx_ss.id
 
-    FROM funnelfox_sessions
+    -- LEFT JOIN subscription charges (matched via time proximity)
+    LEFT JOIN subscription_charges sc
+        ON sc.ff_session_id = fnlfx_ss.id
+
+    -- LEFT JOIN FunnelFox subscriptions for billing info
+    LEFT JOIN {{ source('raw_funnelfox', 'subscriptions') }} fs
+        ON COALESCE(sc.subscription_id, subs.id) = fs.psp_id
+        AND fs.sandbox = FALSE
 ),
 
 -- =============================================================================
--- 2. FUNNEL METADATA
+-- 4a. AMPLITUDE: Extract profile_id from device_id and get first-touch attribution
 -- =============================================================================
-funnels AS (
-    SELECT
-        id AS funnel_id,
-        title AS funnel_title,
-        type AS funnel_type,
-        environment AS funnel_environment
-    FROM {{ source('raw_funnelfox', 'funnels') }}
-),
+amplitude_attribution AS (
+    SELECT DISTINCT ON (profile_id)
+        -- Extract profile_id from device_id (format: 'fnlfx_{profile_id}')
+        SUBSTRING(device_id FROM 7) AS profile_id,
 
--- =============================================================================
--- 3. AMPLITUDE EVENTS AGGREGATED PER SESSION
--- =============================================================================
--- Extract ff_session_id (fsid) from Page Location URL where available
-amplitude_with_session AS (
-    SELECT
-        *,
-        SUBSTRING(
-            event_properties->>'[Amplitude] Page Location'
-            FROM 'fsid=([A-Z0-9]+)'
-        ) AS ff_session_id
+        -- First-touch UTM attribution from user_properties
+        user_properties->>'initial_utm_source' AS utm_source,
+        user_properties->>'initial_utm_medium' AS utm_medium,
+        user_properties->>'initial_utm_campaign' AS utm_campaign,
+        user_properties->>'initial_utm_content' AS utm_content,
+        user_properties->>'initial_utm_term' AS utm_term,
+        user_properties->>'initial_fbclid' AS fbclid,
+        user_properties->>'initial_gclid' AS gclid,
+        user_properties->>'initial_referrer' AS referrer,
+        user_properties->>'initial_referring_domain' AS referring_domain,
+
+        -- Amplitude identifiers
+        device_id AS amplitude_device_id,
+        amplitude_id,
+        platform AS amplitude_platform,
+        os_name AS amplitude_os,
+
+        MIN(event_time) AS first_amplitude_event_at
+
     FROM {{ source('raw_amplitude', 'events') }}
-),
-
--- Aggregate Amplitude events by session (only events with fsid can be linked)
-amplitude_events AS (
-    SELECT
-        ff_session_id AS session_id,
-        COUNT(*) AS total_events,
-        COUNT(DISTINCT event_type) AS unique_event_types,
-        MIN(event_time) AS first_event_at,
-        MAX(event_time) AS last_event_at,
-        EXTRACT(EPOCH FROM (MAX(event_time) - MIN(event_time))) AS session_duration_seconds,
-        ARRAY_AGG(DISTINCT event_type ORDER BY event_type) AS event_types_list,
-        -- Take first non-null device/platform info
-        MAX(device_id) AS amplitude_device_id,
-        MAX(platform) AS amplitude_platform,
-        MAX(os_name) AS amplitude_os_version,
-        MAX(country) AS amplitude_country,
-        MAX(city) AS amplitude_city
-    FROM amplitude_with_session
-    WHERE ff_session_id IS NOT NULL
-    GROUP BY ff_session_id
-),
-
--- Separate CTE for proper event counts
-amplitude_event_counts AS (
-    SELECT
-        ff_session_id AS session_id,
-        JSONB_OBJECT_AGG(event_type, event_count) AS event_counts_json
-    FROM (
-        SELECT
-            ff_session_id,
-            event_type,
-            COUNT(*) AS event_count
-        FROM amplitude_with_session
-        WHERE ff_session_id IS NOT NULL
-        GROUP BY ff_session_id, event_type
-    ) counts
-    GROUP BY session_id
+    WHERE device_id LIKE 'fnlfx_%'
+    GROUP BY
+        SUBSTRING(device_id FROM 7),
+        user_properties->>'initial_utm_source',
+        user_properties->>'initial_utm_medium',
+        user_properties->>'initial_utm_campaign',
+        user_properties->>'initial_utm_content',
+        user_properties->>'initial_utm_term',
+        user_properties->>'initial_fbclid',
+        user_properties->>'initial_gclid',
+        user_properties->>'initial_referrer',
+        user_properties->>'initial_referring_domain',
+        device_id,
+        amplitude_id,
+        platform,
+        os_name
+    ORDER BY profile_id, MIN(event_time)
 ),
 
 -- =============================================================================
--- 4. FACEBOOK ADS HIERARCHY
+-- 4b. FACEBOOK: Campaign lookup tables
 -- =============================================================================
-facebook_ads_enriched AS (
-    SELECT DISTINCT ON (a.facebook_ad_id)
-        a.facebook_ad_id,
-        a.facebook_adset_id,
-        a.facebook_campaign_id,
-        a.ad_name,
-        ads.adset_name,
-        c.campaign_name,
-        c.objective AS campaign_objective
-    FROM {{ source('raw_facebook', 'facebook_ads') }} a
-    LEFT JOIN {{ source('raw_facebook', 'facebook_adsets') }} ads
-        ON a.facebook_adset_id = ads.facebook_adset_id
-    LEFT JOIN {{ source('raw_facebook', 'facebook_campaigns') }} c
-        ON a.facebook_campaign_id = c.facebook_campaign_id
-    ORDER BY a.facebook_ad_id, a.created_time DESC
+-- Primary: Match by campaign_id
+facebook_campaigns_by_id AS (
+    SELECT DISTINCT ON (facebook_campaign_id)
+        facebook_campaign_id,
+        campaign_name,
+        objective AS campaign_objective
+    FROM {{ source('raw_facebook', 'facebook_campaigns') }}
+    ORDER BY facebook_campaign_id, created_time DESC
 ),
 
--- Campaign name lookup for secondary matching
-facebook_campaigns_lookup AS (
+-- Secondary: Match by campaign_name (fallback)
+-- Note: utm_campaign values are URL-encoded (+ for spaces, %2C for commas)
+facebook_campaigns_by_name AS (
     SELECT DISTINCT ON (campaign_name)
         facebook_campaign_id,
         campaign_name,
+        -- Create URL-encoded version for matching (spaces -> +, commas -> %2C)
+        REPLACE(REPLACE(campaign_name, ' ', '+'), ',', '%2C') AS campaign_name_encoded,
         objective AS campaign_objective
     FROM {{ source('raw_facebook', 'facebook_campaigns') }}
     WHERE campaign_name IS NOT NULL
@@ -197,196 +215,130 @@ facebook_campaigns_lookup AS (
 ),
 
 -- =============================================================================
--- 5. CONVERSIONS (Stripe subscriptions via metadata ff_session_id)
--- =============================================================================
-stripe_subscriptions AS (
-    SELECT
-        id AS stripe_subscription_id,
-        customer,
-        status,
-        created,
-        metadata->>'ff_session_id' AS ff_session_id
-    FROM {{ source('raw_stripe', 'subscriptions') }}
-    WHERE metadata->>'ff_session_id' IS NOT NULL
-),
-
-funnelfox_subscriptions AS (
-    SELECT
-        id AS ff_subscription_id,
-        psp_id AS stripe_subscription_id,
-        price_usd / 100.0 AS subscription_price_usd,
-        sandbox,
-        status AS subscription_status,
-        created_at AS subscription_created_at
-    FROM {{ source('raw_funnelfox', 'subscriptions') }}
-    WHERE sandbox = FALSE
-),
-
-stripe_charges AS (
-    SELECT
-        id AS charge_id,
-        customer,
-        amount / 100.0 AS revenue_usd,
-        currency,
-        status AS payment_status,
-        created AS charge_created_at
-    FROM {{ source('raw_stripe', 'charges') }}
-    WHERE status = 'succeeded'
-),
-
-session_conversions AS (
-    SELECT
-        ss.ff_session_id AS session_id,
-        ss.stripe_subscription_id,
-        ffs.subscription_price_usd,
-        ffs.subscription_status,
-        ffs.subscription_created_at,
-        chg.revenue_usd,
-        chg.currency,
-        chg.payment_status,
-        chg.charge_created_at AS conversion_timestamp
-    FROM stripe_subscriptions ss
-    LEFT JOIN funnelfox_subscriptions ffs
-        ON ss.stripe_subscription_id = ffs.stripe_subscription_id
-    LEFT JOIN stripe_charges chg
-        ON ss.customer = chg.customer
-        AND chg.charge_created_at >= ss.created
-        AND chg.charge_created_at < ss.created + INTERVAL '1 day'
-),
-
--- =============================================================================
--- 6. FINAL JOIN
+-- FINAL: Join everything together
 -- =============================================================================
 final AS (
     SELECT
-        -- Session identifiers
-        ps.session_id,
-        ps.profile_id,
-        ps.session_created_at AS session_timestamp,
-        DATE(ps.session_created_at AT TIME ZONE 'UTC') AS session_date,
+        -- User identifier
+        sp.profile_id,
 
-        -- Raw attribution (preserved)
-        ps.origin_raw,
-        ps.user_agent,
-        ps.ip_address,
-
-        -- Parsed UTM parameters
-        ps.utm_source,
-        ps.utm_medium,
-        ps.utm_campaign,
-        ps.utm_content,
-        ps.utm_term,
-        ps.fbclid,
-        ps.ad_id_from_url AS ad_id,
-
-        -- Facebook ad hierarchy (with fallback chain)
-        COALESCE(fb_direct.facebook_ad_id, fb_campaign.facebook_campaign_id) AS facebook_ad_id,
-        fb_direct.facebook_adset_id,
-        COALESCE(fb_direct.facebook_campaign_id, fb_campaign.facebook_campaign_id) AS facebook_campaign_id,
-        fb_direct.ad_name,
-        fb_direct.adset_name,
-        COALESCE(fb_direct.campaign_name, fb_campaign.campaign_name) AS campaign_name,
-        COALESCE(fb_direct.campaign_objective, fb_campaign.campaign_objective) AS campaign_objective,
-
-        -- Amplitude event aggregates
-        COALESCE(amp.total_events, 0) AS total_events,
-        COALESCE(amp.unique_event_types, 0) AS unique_event_types,
-        amp.first_event_at,
-        amp.last_event_at,
-        amp.session_duration_seconds,
-        amp.event_types_list,
-        COALESCE(amp_counts.event_counts_json, '{}'::jsonb) AS event_counts_json,
-
-        -- Amplitude device/platform
-        amp.amplitude_device_id,
-        amp.amplitude_platform,
-        amp.amplitude_os_version,
-        amp.amplitude_country,
-        amp.amplitude_city,
+        -- Session info
+        sp.session_id,
+        sp.session_created_at,
+        DATE(sp.session_created_at AT TIME ZONE 'UTC') AS session_date,
 
         -- Funnel context
-        ps.funnel_id,
-        f.funnel_title,
-        f.funnel_type,
-        f.funnel_environment,
-        ps.funnel_version,
-        ps.country,
-        ps.city,
+        sp.funnel_id,
+        sp.funnel_title,
+        sp.funnel_type,
+        sp.funnel_environment,
+        sp.funnel_alias,
+        sp.funnel_version,
+        sp.origin,
 
-        -- Conversion & Revenue
-        CASE WHEN conv.session_id IS NOT NULL THEN TRUE ELSE FALSE END AS converted,
-        conv.conversion_timestamp,
-        CASE
-            WHEN conv.conversion_timestamp IS NOT NULL
-            THEN EXTRACT(EPOCH FROM (conv.conversion_timestamp - ps.session_created_at)) / 3600.0
-            ELSE NULL
-        END AS hours_to_convert,
-        conv.revenue_usd,
-        conv.currency,
-        conv.payment_status,
-        conv.stripe_subscription_id AS subscription_id,
-        conv.subscription_status,
+        -- Geography
+        sp.country,
+        sp.city,
 
-        -- Calculated attribution metrics
+        -- UTM Attribution (from Amplitude first-touch)
+        amp.utm_source,
+        amp.utm_medium,
+        amp.utm_campaign,
+        amp.utm_content,
+        amp.utm_term,
+        amp.fbclid,
+        amp.gclid,
+        amp.referrer,
+        amp.referring_domain,
+
+        -- Facebook campaign matching
+        COALESCE(fb_by_id.facebook_campaign_id, fb_by_name.facebook_campaign_id) AS facebook_campaign_id,
+        COALESCE(fb_by_id.campaign_name, fb_by_name.campaign_name) AS facebook_campaign_name,
+        COALESCE(fb_by_id.campaign_objective, fb_by_name.campaign_objective) AS facebook_campaign_objective,
+
+        -- Amplitude metadata
+        amp.amplitude_device_id,
+        amp.amplitude_id,
+        amp.amplitude_platform,
+        amp.amplitude_os,
+        amp.first_amplitude_event_at,
+
+        -- Stripe subscription & charge data
+        sp.stripe_subscription_id,
+        sp.stripe_subscription_status,
+        sp.stripe_customer_id,
+        sp.stripe_subscription_created_at,
+        sp.stripe_charge_id,
+
+        -- FunnelFox subscription data
+        sp.funnelfox_subscription_id,
+        sp.funnelfox_subscription_status,
+        sp.payment_provider,
+
+        -- Billing details (from Stripe plan)
+        sp.billing_interval,
+        sp.billing_interval_count,
+        sp.currency,
+
+        -- Revenue (from subscription plan, only if payment succeeded)
+        sp.revenue_usd,
+
+        -- Time to convert (subscription time - session time)
+        EXTRACT(EPOCH FROM (sp.stripe_subscription_created_at - sp.session_created_at)) / 3600.0 AS hours_to_convert,
+
+        -- Attribution channel classification
         CASE
-            WHEN LOWER(ps.utm_medium) IN ('cpc', 'paid', 'ppc', 'paidsocial', 'paid_social')
+            WHEN LOWER(amp.utm_source) IN ('facebook', 'fb') AND LOWER(amp.utm_medium) IN ('cpc', 'paid', 'ppc', 'paidsocial', 'paid_social')
+                THEN 'facebook_paid'
+            WHEN LOWER(amp.utm_source) IN ('facebook', 'fb')
+                THEN 'facebook_organic'
+            WHEN amp.fbclid IS NOT NULL
+                THEN 'facebook_paid'
+            WHEN LOWER(amp.utm_source) IN ('google') AND LOWER(amp.utm_medium) IN ('cpc', 'paid', 'ppc')
+                THEN 'google_paid'
+            WHEN LOWER(amp.utm_source) = 'google'
+                THEN 'google_organic'
+            WHEN amp.gclid IS NOT NULL
+                THEN 'google_paid'
+            WHEN LOWER(amp.utm_medium) IN ('cpc', 'paid', 'ppc')
+                THEN 'other_paid'
+            WHEN amp.utm_source IS NOT NULL
+                THEN 'other_' || LOWER(amp.utm_source)
+            ELSE 'direct'
+        END AS attribution_channel,
+
+        -- Paid traffic flag
+        CASE
+            WHEN LOWER(amp.utm_medium) IN ('cpc', 'paid', 'ppc', 'paidsocial', 'paid_social')
+                OR amp.fbclid IS NOT NULL
+                OR amp.gclid IS NOT NULL
             THEN TRUE
             ELSE FALSE
         END AS is_paid_traffic,
 
+        -- Facebook traffic flag
         CASE
-            WHEN LOWER(ps.utm_source) = 'facebook'
-                OR LOWER(ps.utm_source) = 'fb'
-                OR ps.fbclid IS NOT NULL
+            WHEN LOWER(amp.utm_source) IN ('facebook', 'fb')
+                OR amp.fbclid IS NOT NULL
             THEN TRUE
             ELSE FALSE
-        END AS is_facebook_traffic,
+        END AS is_facebook_traffic
 
-        CASE
-            WHEN LOWER(ps.utm_source) IN ('facebook', 'fb') AND LOWER(ps.utm_medium) IN ('cpc', 'paid', 'ppc', 'paidsocial', 'paid_social')
-                THEN 'facebook_paid'
-            WHEN LOWER(ps.utm_source) IN ('facebook', 'fb')
-                THEN 'facebook_organic'
-            WHEN ps.fbclid IS NOT NULL
-                THEN 'facebook_paid'
-            WHEN LOWER(ps.utm_source) IN ('google', 'gclid') AND LOWER(ps.utm_medium) IN ('cpc', 'paid', 'ppc')
-                THEN 'google_paid'
-            WHEN LOWER(ps.utm_source) = 'google'
-                THEN 'google_organic'
-            WHEN LOWER(ps.utm_medium) IN ('cpc', 'paid', 'ppc')
-                THEN 'other_paid'
-            WHEN ps.utm_source IS NOT NULL
-                THEN 'other_' || LOWER(ps.utm_source)
-            WHEN ps.origin_raw IS NOT NULL AND ps.origin_raw != ''
-                THEN 'direct_or_unknown'
-            ELSE 'direct'
-        END AS attribution_channel
+    FROM session_payments sp
 
-    FROM parsed_sessions ps
+    -- Amplitude attribution (profile_id matched via 'fnlfx_' prefix)
+    LEFT JOIN amplitude_attribution amp
+        ON sp.profile_id = amp.profile_id
 
-    -- Join funnel metadata
-    LEFT JOIN funnels f
-        ON ps.funnel_id = f.funnel_id
+    -- Facebook campaigns: primary match by campaign_id
+    LEFT JOIN facebook_campaigns_by_id fb_by_id
+        ON amp.utm_campaign = fb_by_id.facebook_campaign_id
 
-    -- Join Amplitude aggregates
-    LEFT JOIN amplitude_events amp
-        ON ps.session_id = amp.session_id
-
-    LEFT JOIN amplitude_event_counts amp_counts
-        ON ps.session_id = amp_counts.session_id
-
-    -- Join Facebook ads (primary: by ad_id from URL)
-    LEFT JOIN facebook_ads_enriched fb_direct
-        ON ps.ad_id_from_url = fb_direct.facebook_ad_id
-
-    -- Join Facebook campaigns (secondary: by utm_campaign name)
-    LEFT JOIN facebook_campaigns_lookup fb_campaign
-        ON ps.utm_campaign = fb_campaign.campaign_name
-        AND fb_direct.facebook_ad_id IS NULL  -- Only use if direct match failed
-
-    -- Join conversions
-    LEFT JOIN session_conversions conv
-        ON ps.session_id = conv.session_id
+    -- Facebook campaigns: secondary match by campaign_name (fallback)
+    -- Match against URL-encoded campaign name (+ for spaces, %2C for commas)
+    LEFT JOIN facebook_campaigns_by_name fb_by_name
+        ON amp.utm_campaign = fb_by_name.campaign_name_encoded
+        AND fb_by_id.facebook_campaign_id IS NULL
 )
 
 SELECT * FROM final

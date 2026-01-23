@@ -10,10 +10,8 @@
     Purpose: Track fraud risk, chargebacks, and refund metrics for risk monitoring
     Grain: One row per day
 
-    Data Sources (all from charges table):
-    - Refunds: amount_refunded, refunded fields
-    - Risk/Fraud: outcome JSON field (risk_level, risk_score)
-    - Disputes: disputed field + dispute JSON when available
+    Data Sources:
+    - Stripe charges: refunds, risk levels, disputes
 
     Metrics calculated:
     - Refund count and amount

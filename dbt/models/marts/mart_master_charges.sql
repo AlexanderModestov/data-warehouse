@@ -12,6 +12,7 @@
 
     Data Sources:
     - raw_stripe.charges: Core payment data (includes embedded refund data)
+    - raw_stripe.payment_intents: Intent-level data (status, cancellation)
     - raw_funnelfox.subscriptions: FunnelFox linkage (nullable)
     - raw_funnelfox.sessions: User session data (nullable)
     - raw_funnelfox.funnels: Funnel metadata (nullable)
@@ -22,6 +23,7 @@
     - FunnelFox linkage via subscriptions.psp_id = charges.id
     - Risk metrics from outcome JSON (EFW proxy approach)
     - Refund data from embedded fields on charges (refunded, amount_refunded)
+    - Card BIN/issuer/product from payment_method_details JSON
 */
 
 WITH stripe_charges AS (
@@ -46,6 +48,9 @@ WITH stripe_charges AS (
         (payment_method_details::json->'card')->>'country' AS card_country,
         (payment_method_details::json->'card')->>'funding' AS card_funding,
         (payment_method_details::json->'card')->>'last4' AS card_last4,
+        (payment_method_details::json->'card')->>'iin' AS card_bin,
+        (payment_method_details::json->'card')->>'issuer' AS card_issuer,
+        (payment_method_details::json->'card')->>'product' AS card_product,
 
         -- Customer billing country
         (billing_details::json->'address')->>'country' AS customer_country,
@@ -64,6 +69,9 @@ WITH stripe_charges AS (
         COALESCE(refunded, FALSE) AS has_refund_embedded,
         COALESCE(amount_refunded, 0) / 100.0 AS refund_amount_embedded,
 
+        -- Description (Subscription creation, Payment for invoice, etc.)
+        description,
+
         -- Timestamps
         created AS created_at
 
@@ -71,10 +79,21 @@ WITH stripe_charges AS (
     WHERE amount NOT IN (100, 200)  -- Exclude test payments ($1, $2)
 ),
 
+-- Stripe invoices to link charges → subscriptions
+stripe_invoices AS (
+    SELECT
+        id AS invoice_id,
+        subscription AS stripe_subscription_id,
+        charge AS invoice_charge_id
+    FROM {{ source('raw_stripe', 'invoices') }}
+    WHERE subscription IS NOT NULL
+),
+
 -- FunnelFox subscriptions for linkage
+-- Note: psp_id contains Stripe subscription IDs (sub_*)
 funnelfox_subscriptions AS (
     SELECT
-        psp_id,  -- Links to charge_id
+        psp_id AS stripe_subscription_id,  -- Contains sub_* (Stripe subscription ID)
         id AS ff_subscription_id,
         profile_id,
         status AS ff_subscription_status,
@@ -110,6 +129,35 @@ funnels AS (
     FROM {{ source('raw_funnelfox', 'funnels') }}
 ),
 
+-- Subscription items to link subscriptions → products
+subscription_items AS (
+    SELECT DISTINCT ON (subscription)
+        subscription AS stripe_subscription_id,
+        (plan::json)->>'product' AS product_id
+    FROM {{ source('raw_stripe', 'subscription_items') }}
+    ORDER BY subscription, created DESC
+),
+
+-- Products catalog
+products AS (
+    SELECT
+        id AS product_id,
+        name AS product_name
+    FROM {{ source('raw_stripe', 'products') }}
+),
+
+-- Payment intents for intent-level data
+payment_intents AS (
+    SELECT
+        id AS intent_id,
+        status AS intent_status,
+        canceled_at AS intent_canceled_at,
+        cancellation_reason AS intent_cancellation_reason,
+        description AS intent_description,
+        created AS intent_created_at
+    FROM {{ source('raw_stripe', 'payment_intents') }}
+),
+
 -- Add failure categorization and derived risk flags
 charges_with_categories AS (
     SELECT
@@ -142,6 +190,28 @@ charges_with_categories AS (
         c.failure_code IN ('fraudulent', 'merchant_blacklist', 'stolen_card', 'lost_card') AS is_fraud_decline
 
     FROM stripe_charges c
+),
+
+-- Intent-level stats for retry tracking
+intent_stats AS (
+    SELECT
+        payment_intent_id,
+        MAX(CASE WHEN status = 'succeeded' THEN 1 ELSE 0 END) AS intent_has_success
+    FROM charges_with_categories
+    WHERE payment_intent_id IS NOT NULL
+    GROUP BY payment_intent_id
+),
+
+-- Add retry tracking info
+charges_with_retry_info AS (
+    SELECT
+        c.*,
+        ROW_NUMBER() OVER (PARTITION BY c.payment_intent_id ORDER BY c.created_at ASC) AS attempt_number,
+        ROW_NUMBER() OVER (PARTITION BY c.payment_intent_id ORDER BY c.created_at ASC) = 1 AS is_first_attempt,
+        ROW_NUMBER() OVER (PARTITION BY c.payment_intent_id ORDER BY c.created_at DESC) = 1 AS is_final_attempt,
+        COALESCE(i.intent_has_success = 1, FALSE) AS intent_eventually_succeeded
+    FROM charges_with_categories c
+    LEFT JOIN intent_stats i ON c.payment_intent_id = i.payment_intent_id
 )
 
 -- Final output: join all sources
@@ -164,6 +234,9 @@ SELECT
     c.card_country,
     c.card_funding,
     c.card_last4,
+    c.card_bin,
+    c.card_issuer,
+    c.card_product,
     c.customer_country,
 
     -- Risk fields
@@ -188,7 +261,14 @@ SELECT
         ELSE 0
     END AS refund_ratio,
 
-    -- FunnelFox linkage (nullable)
+    -- Payment intent fields
+    pi.intent_status,
+    pi.intent_canceled_at,
+    pi.intent_cancellation_reason,
+    pi.intent_description,
+    pi.intent_created_at,
+
+    -- FunnelFox linkage (nullable) - linked via invoice → Stripe subscription
     ff.profile_id,
     ff.ff_subscription_id,
     ff.ff_subscription_status,
@@ -196,6 +276,9 @@ SELECT
     ff.billing_interval,
     ff.billing_interval_count,
     ff.subscription_price_usd,
+
+    -- Product info (from Stripe products catalog)
+    p.product_name,
 
     -- Funnel & traffic info (nullable)
     f.funnel_id,
@@ -220,9 +303,25 @@ SELECT
 
 FROM charges_with_categories c
 
--- FunnelFox subscription linkage
+-- Payment intent linkage
+LEFT JOIN payment_intents pi
+    ON pi.intent_id = c.payment_intent_id
+
+-- Link charge → invoice → Stripe subscription
+LEFT JOIN stripe_invoices inv
+    ON inv.invoice_id = c.invoice_id
+
+-- FunnelFox subscription linkage via Stripe subscription ID
 LEFT JOIN funnelfox_subscriptions ff
-    ON ff.psp_id = c.charge_id
+    ON ff.stripe_subscription_id = inv.stripe_subscription_id
+
+-- Subscription items to get product_id
+LEFT JOIN subscription_items si
+    ON si.stripe_subscription_id = inv.stripe_subscription_id
+
+-- Products to get product_name
+LEFT JOIN products p
+    ON p.product_id = si.product_id
 
 -- First session for attribution
 LEFT JOIN first_sessions sess

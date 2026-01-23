@@ -1,0 +1,108 @@
+version: 2
+
+sources:
+  - name: raw_facebook_new
+    description: Facebook Ads data from new Meltano extractor (tap-facebook)
+    schema: raw_facebook_new
+    tables:
+      - name: adsinsights_default
+        description: Daily Facebook ad performance metrics (equivalent to facebook_ad_statistics)
+        columns:
+          - name: ad_id
+            description: Facebook ad identifier
+          - name: adset_id
+            description: Facebook adset identifier
+          - name: campaign_id
+            description: Facebook campaign identifier
+          - name: account_id
+            description: Facebook ad account identifier
+          - name: date_start
+            description: Start date of the metrics period
+          - name: date_stop
+            description: End date of the metrics period
+          - name: spend
+            description: Amount spent in account currency
+          - name: impressions
+            description: Number of impressions
+          - name: clicks
+            description: Number of clicks
+          - name: unique_clicks
+            description: Number of unique clicks
+          - name: cpc
+            description: Cost per click
+          - name: cpm
+            description: Cost per mille (1000 impressions)
+          - name: ctr
+            description: Click-through rate
+          - name: actions
+            description: Array of conversion actions with action_type and value
+          - name: cost_per_action_type
+            description: Array of cost per action with action_type and value
+
+      - name: campaigns
+        description: Facebook campaign definitions
+        columns:
+          - name: id
+            description: Facebook campaign identifier
+          - name: account_id
+            description: Facebook ad account identifier
+          - name: name
+            description: Campaign name
+          - name: objective
+            description: Campaign objective
+          - name: status
+            description: Campaign status
+          - name: effective_status
+            description: Effective campaign status
+
+      - name: ads
+        description: Facebook ad creatives
+        columns:
+          - name: id
+            description: Facebook ad identifier
+          - name: adset_id
+            description: Facebook adset identifier
+          - name: campaign_id
+            description: Facebook campaign identifier
+          - name: account_id
+            description: Facebook ad account identifier
+          - name: name
+            description: Ad creative name
+          - name: status
+            description: Ad status
+          - name: effective_status
+            description: Effective ad status
+
+      - name: adsets
+        description: Facebook adset configurations
+        columns:
+          - name: id
+            description: Facebook adset identifier
+          - name: campaign_id
+            description: Facebook campaign identifier
+          - name: account_id
+            description: Facebook ad account identifier
+          - name: name
+            description: Adset name
+          - name: status
+            description: Adset status
+          - name: effective_status
+            description: Effective adset status
+          - name: daily_budget
+            description: Daily budget in cents
+          - name: lifetime_budget
+            description: Lifetime budget in cents
+          - name: targeting
+            description: Targeting configuration (JSON)
+
+      - name: adsinsights_age_and_gender
+        description: Facebook ad insights broken down by age and gender
+        columns:
+          - name: ad_id
+            description: Facebook ad identifier
+          - name: date_start
+            description: Start date of the metrics period
+          - name: age
+            description: Age range
+          - name: gender
+            description: Gender

@@ -27,7 +27,7 @@ sources:
           - name: id
             description: FunnelFox subscription ID
           - name: psp_id
-            description: Payment Service Provider ID (links to Stripe charge ID)
+            description: Payment Service Provider ID (links to Stripe subscription ID)
           - name: profile_id
             description: User profile ID
           - name: created_at
@@ -170,6 +170,64 @@ sources:
             description: Refund reason
           - name: payment_intent
             description: Related payment intent ID
+
+      - name: payment_intents
+        description: Stripe payment intents grouping retry attempts
+        columns:
+          - name: id
+            description: Payment intent ID
+          - name: status
+            description: Intent status (requires_payment_method, requires_confirmation, requires_action, processing, requires_capture, canceled, succeeded)
+          - name: amount
+            description: Amount in cents
+          - name: currency
+            description: Currency code
+          - name: customer
+            description: Stripe customer ID
+          - name: description
+            description: Payment description
+          - name: invoice
+            description: Related invoice ID
+          - name: latest_charge
+            description: Most recent charge ID for this intent
+          - name: payment_method
+            description: Payment method ID used
+          - name: canceled_at
+            description: Cancellation timestamp if canceled
+          - name: cancellation_reason
+            description: Reason for cancellation
+          - name: created
+            description: Intent creation timestamp
+
+      - name: subscription_items
+        description: Stripe subscription line items with plan details
+        columns:
+          - name: id
+            description: Subscription item ID
+          - name: subscription
+            description: Parent subscription ID
+          - name: plan
+            description: Plan details (JSON with product reference)
+          - name: price
+            description: Price details (JSON)
+          - name: quantity
+            description: Quantity
+          - name: created
+            description: Creation timestamp
+
+      - name: products
+        description: Stripe products catalog
+        columns:
+          - name: id
+            description: Product ID
+          - name: name
+            description: Product name
+          - name: description
+            description: Product description
+          - name: type
+            description: Product type (service, good)
+          - name: active
+            description: Whether product is active
 
   - name: raw_amplitude
     description: Product events from Amplitude with marketing attribution
@@ -365,3 +423,153 @@ sources:
             description: User's answer value
           - name: created_at
             description: Response timestamp
+
+  - name: raw_appsflyer
+    description: Mobile attribution and install data from AppsFlyer
+    schema: raw_appsflyer
+    tables:
+      - name: installs
+        description: App install events with attribution data
+        columns:
+          - name: id
+            description: Unique install event identifier
+          - name: appsflyer_id
+            description: AppsFlyer unique device identifier
+          - name: customer_user_id
+            description: User ID (links to FunnelFox profile_id)
+          - name: install_time
+            description: Install timestamp
+          - name: event_time
+            description: Event timestamp
+          - name: media_source
+            description: Attributed media source (facebook, google, organic)
+          - name: campaign
+            description: Campaign name
+          - name: campaign_id
+            description: Campaign identifier
+          - name: adset
+            description: Adset name
+          - name: adset_id
+            description: Adset identifier (Facebook adset ID)
+          - name: ad
+            description: Ad name
+          - name: ad_id
+            description: Ad identifier (Facebook ad ID)
+          - name: channel
+            description: Marketing channel
+          - name: platform
+            description: Platform (ios, android)
+          - name: app_id
+            description: App identifier
+          - name: country_code
+            description: User country code
+          - name: city
+            description: User city
+          - name: ip
+            description: User IP address
+          - name: device_type
+            description: Device type
+          - name: os_version
+            description: OS version
+          - name: is_retargeting
+            description: Whether install came from retargeting campaign
+          - name: cost_model
+            description: Cost model (CPI, CPA, etc.)
+          - name: cost_value
+            description: Cost value per install
+          - name: cost_currency
+            description: Cost currency
+
+      - name: in_app_events
+        description: In-app events with attribution
+        columns:
+          - name: id
+            description: Unique event identifier
+          - name: appsflyer_id
+            description: AppsFlyer unique device identifier
+          - name: customer_user_id
+            description: User ID (links to FunnelFox profile_id)
+          - name: event_name
+            description: Event name (af_purchase, af_subscribe, etc.)
+          - name: event_time
+            description: Event timestamp
+          - name: event_value
+            description: Event value (JSON with revenue, etc.)
+          - name: event_revenue
+            description: Revenue amount
+          - name: event_revenue_currency
+            description: Revenue currency
+          - name: media_source
+            description: Attributed media source
+          - name: campaign
+            description: Campaign name
+          - name: campaign_id
+            description: Campaign identifier
+          - name: adset_id
+            description: Adset identifier
+          - name: ad_id
+            description: Ad identifier
+          - name: platform
+            description: Platform (ios, android)
+
+  - name: raw_ethoca
+    description: Ethoca fraud and chargeback alerts from Mastercard
+    schema: raw_ethoca
+    tables:
+      - name: alerts
+        description: Ethoca alerts for fraud notifications and dispute prevention
+        columns:
+          - name: alert_id
+            description: Unique alert identifier
+          - name: merchant_id
+            description: Ethoca merchant identifier
+          - name: alert_type
+            description: Type of alert (FRAUD, DISPUTE)
+          - name: transaction_id
+            description: Original transaction reference
+          - name: arn
+            description: Acquirer Reference Number (links to payment)
+          - name: transaction_amount
+            description: Original transaction amount in USD
+          - name: transaction_currency
+            description: Transaction currency code
+          - name: transaction_date
+            description: Original transaction date
+          - name: card_brand
+            description: Card brand (VISA, MASTERCARD, etc.)
+          - name: card_last_four
+            description: Last 4 digits of card number
+          - name: card_country
+            description: Card issuing country
+          - name: reason_code
+            description: Alert reason code
+          - name: reason_description
+            description: Human-readable reason description
+          - name: fraud_type
+            description: Type of fraud (for fraud alerts)
+          - name: status
+            description: Alert status (OPEN, CLOSED, RESOLVED)
+          - name: resolution
+            description: Resolution outcome
+          - name: refund_status
+            description: Refund status if applicable
+          - name: refund_amount
+            description: Refund amount if issued
+          - name: created_at
+            description: Alert creation timestamp
+          - name: updated_at
+            description: Alert last update timestamp
+          - name: resolved_at
+            description: Alert resolution timestamp
+          - name: deadline
+            description: Response deadline
+          - name: issuer_name
+            description: Card issuer name
+          - name: issuer_country
+            description: Card issuer country
+          - name: descriptor
+            description: Merchant descriptor
+          - name: comments
+            description: Alert comments or notes
+          - name: raw_data
+            description: Full raw API response as JSON

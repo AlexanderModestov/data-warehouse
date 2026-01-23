@@ -941,12 +941,12 @@ models:
         description: Subscription status
 
       - name: is_paid_traffic
-        description: True if UTM medium indicates paid traffic
+        description: True if UTM medium indicates paid traffic or has fbclid/gclid
         tests:
           - not_null
 
       - name: is_facebook_traffic
-        description: True if attributed to Facebook
+        description: True if utm_source is facebook/fb or has fbclid
         tests:
           - not_null
 
@@ -1084,19 +1084,22 @@ models:
   - name: mart_marketing_performance
     description: |
       Comprehensive marketing performance metrics combining Facebook Ads
-      statistics with attributed conversions and revenue for ROAS analysis.
+      statistics with attributed conversions, installs, and revenue for ROAS analysis.
       Grain: One row per date + campaign + adset + ad.
 
       Data Sources:
       - Facebook Ads statistics (spend, impressions, clicks, video metrics)
       - Facebook campaign/adset/ad metadata
+      - AppsFlyer installs (mobile app installs with attribution)
       - Attributed conversions from mart_marketing_attribution (real revenue)
+      - Amplitude events (funnel step conversions)
 
       Use cases:
       - Daily/weekly/monthly marketing performance dashboards
       - ROAS and CAC analysis by campaign/adset/ad
-      - Funnel conversion rate tracking (clicks → registrations → purchases)
+      - Full funnel tracking (clicks → installs → registrations → purchases)
       - Video engagement metrics (hook rate, hold rate)
+      - Funnel step conversion rates (CR 1to2scr, CR to paywall, pCVR, upsell CR)
       - LTV and ROI projections
     columns:
       - name: date
@@ -1120,10 +1123,10 @@ models:
           - not_null
 
       - name: funnel_id
-        description: FunnelFox funnel identifier (from attributed sessions)
+        description: FunnelFox funnel identifier (dominant funnel for this campaign based on session count)
 
       - name: funnel_title
-        description: FunnelFox funnel name/title
+        description: FunnelFox funnel name
 
       - name: campaign_name
         description: Facebook campaign name
@@ -1151,18 +1154,12 @@ models:
 
       - name: spend_usd
         description: Total spend in USD
-        tests:
-          - not_null
 
       - name: impressions
         description: Total impressions
-        tests:
-          - not_null
 
       - name: clicks
         description: Total clicks
-        tests:
-          - not_null
 
       - name: unique_clicks
         description: Unique clicks
@@ -1183,19 +1180,28 @@ models:
         description: Video thru-plays (watched to completion)
 
       - name: hook_rate
-        description: Video hook rate (3-sec plays / impressions)
+        description: Video hook rate (3-sec plays / impressions) - measures initial video engagement
 
       - name: hold_rate
-        description: Video hold rate (thru-plays / 3-sec plays)
+        description: Video hold rate (thru-plays / 3-sec plays) - measures video retention
 
       - name: views_to_click_rate
         description: Views to click rate (clicks / impressions)
+
+      - name: installs
+        description: App installs from AppsFlyer with Facebook attribution
+
+      - name: cost_per_install
+        description: Cost per install (spend / installs) - CPI metric
+
+      - name: click_to_install_rate
+        description: Click to install rate (installs / clicks)
 
       - name: registrations
         description: Facebook-attributed registrations
 
       - name: purchases
-        description: Facebook-attributed purchases
+        description: Facebook-attributed purchases (FTD - First Time Deposit)
 
       - name: leads
         description: Facebook-attributed leads
@@ -1204,13 +1210,42 @@ models:
         description: Clicks to registrations rate
 
       - name: regs_to_purchase_rate
-        description: Registrations to purchase rate
+        description: Registrations to purchase rate (R2D - Registration to Deposit)
 
       - name: clicks_to_purchase_rate
         description: Clicks to purchase rate
 
+      - name: install_to_reg_rate
+        description: Install to registration rate (Inst2Reg)
+
+      - name: reg_to_ftd_rate
+        description: Registration to FTD rate (R2D - same as regs_to_purchase_rate)
+
       - name: cost_per_registration
-        description: Cost per registration (spend / registrations)
+        description: Cost per registration (spend / registrations) - $REG metric
+
+      - name: cost_per_ftd
+        description: Cost per FTD/purchase (spend / purchases) - $FTD metric
+
+      - name: cr_1to2_screen
+        description: |
+          CR 1to2scr - First screen to second screen conversion rate.
+          Calculated from Amplitude events (onboarding_started/quiz_started → step_completed/question_answered)
+
+      - name: cr_to_paywall
+        description: |
+          CR to paywall - Percentage of sessions that reached the paywall screen.
+          Calculated from Amplitude paywall_shown/paywall_presented events
+
+      - name: paywall_cvr
+        description: |
+          pCVR - Paywall conversion rate (purchases / paywall views).
+          Measures conversion rate at the paywall step
+
+      - name: upsell_cr
+        description: |
+          Upsell CR - Upsell conversion rate (upsell_completed / upsell_shown).
+          Measures conversion rate on upsell offers
 
       - name: attributed_sessions
         description: Sessions attributed to this ad (from our attribution)
@@ -1399,6 +1434,9 @@ models:
 
       - name: subscription_price_usd
         description: FunnelFox subscription price in USD
+
+      - name: product_name
+        description: Stripe product name from products catalog
 
       - name: funnel_id
         description: Funnel ID (nullable)

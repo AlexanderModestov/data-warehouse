@@ -133,12 +133,23 @@ final AS (
         dm.gross_revenue_usd,
         dm.failed_revenue_usd,
 
+        -- AOV metrics
+        CASE
+            WHEN dm.total_attempts > 0 THEN (dm.gross_revenue_usd + dm.failed_revenue_usd) / dm.total_attempts
+            ELSE NULL
+        END AS aov_all_tries_usd,
+        CASE
+            WHEN dm.successful_payments > 0 THEN dm.gross_revenue_usd / dm.successful_payments
+            ELSE NULL
+        END AS aov_success_usd,
+
         -- Refund metrics
         dm.refunded_usd,
         dm.refund_count,
         dm.net_revenue_usd,
         CASE
-            WHEN dm.gross_revenue_usd > 0 THEN dm.refunded_usd / dm.gross_revenue_usd
+            WHEN COALESCE(dm.gross_revenue_usd, 0) > 0
+            THEN COALESCE(dm.refunded_usd, 0) / dm.gross_revenue_usd
             ELSE NULL
         END AS refund_rate,
 

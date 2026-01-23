@@ -75,8 +75,9 @@ funnels AS (
 funnelfox_subscriptions AS (
     SELECT
         id AS ff_subscription_id,
-        psp_id,  -- Links to Stripe charge ID
+        psp_id,  -- May be Stripe charge ID, subscription ID, or payment intent
         profile_id AS subscription_profile_id,
+        created_at AS ff_subscription_created_at,
         status AS subscription_status,
         payment_provider,
         billing_interval,
@@ -84,7 +85,15 @@ funnelfox_subscriptions AS (
         price / 100.0 AS subscription_price_usd  -- Convert cents to USD
     FROM {{ source('raw_funnelfox', 'subscriptions') }}
     WHERE sandbox = false
-      AND psp_id IS NOT NULL
+),
+
+-- Get payment_intent from Stripe charges for alternative matching
+stripe_charges_with_intent AS (
+    SELECT
+        id AS charge_id,
+        payment_intent
+    FROM {{ source('raw_stripe', 'charges') }}
+    WHERE payment_intent IS NOT NULL
 ),
 
 -- Join all sources (may create duplicates, handled by DISTINCT ON below)
@@ -98,7 +107,7 @@ subscriptions_joined AS (
         sc.currency,
         sc.card_brand,
         sc.card_country,
-        COALESCE(ffs.subscription_profile_id, sess.session_profile_id) AS session_profile_id,
+        COALESCE(ffs_direct.subscription_profile_id, ffs_intent.subscription_profile_id, ffs_profile.subscription_profile_id, sess.session_profile_id) AS session_profile_id,
         sess.country AS session_country,
         sess.city,
         sess.origin AS traffic_source,
@@ -107,23 +116,36 @@ subscriptions_joined AS (
         f.funnel_title,
         f.funnel_type,
         f.funnel_environment,
-        -- FunnelFox subscription fields
-        ffs.ff_subscription_id,
-        ffs.subscription_status,
-        ffs.payment_provider,
-        ffs.billing_interval,
-        ffs.billing_interval_count,
-        ffs.subscription_price_usd
+        -- FunnelFox subscription fields (prefer direct match, then intent match, then profile match)
+        COALESCE(ffs_direct.ff_subscription_id, ffs_intent.ff_subscription_id, ffs_profile.ff_subscription_id) AS ff_subscription_id,
+        COALESCE(ffs_direct.subscription_status, ffs_intent.subscription_status, ffs_profile.subscription_status) AS subscription_status,
+        COALESCE(ffs_direct.payment_provider, ffs_intent.payment_provider, ffs_profile.payment_provider) AS payment_provider,
+        COALESCE(ffs_direct.billing_interval, ffs_intent.billing_interval, ffs_profile.billing_interval) AS billing_interval,
+        COALESCE(ffs_direct.billing_interval_count, ffs_intent.billing_interval_count, ffs_profile.billing_interval_count) AS billing_interval_count,
+        COALESCE(ffs_direct.subscription_price_usd, ffs_intent.subscription_price_usd, ffs_profile.subscription_price_usd) AS subscription_price_usd
     FROM stripe_subscription_charges sc
-    -- Join FunnelFox subscriptions via psp_id (Stripe charge ID)
-    LEFT JOIN funnelfox_subscriptions ffs
-        ON sc.charge_id = ffs.psp_id
+    -- Strategy 1: Direct match via psp_id = charge_id (ch_...)
+    LEFT JOIN funnelfox_subscriptions ffs_direct
+        ON sc.charge_id = ffs_direct.psp_id
+    -- Strategy 2: Match via psp_id = payment_intent (pi_...)
+    LEFT JOIN stripe_charges_with_intent sci
+        ON sc.charge_id = sci.charge_id
+    LEFT JOIN funnelfox_subscriptions ffs_intent
+        ON sci.payment_intent = ffs_intent.psp_id
+        AND ffs_direct.ff_subscription_id IS NULL  -- Only if direct match failed
+    -- Strategy 3: Match via profile_id and timestamp (within 5 min window)
     LEFT JOIN stripe_subscriptions_with_session ss
         ON sc.customer_id = ss.customer
         AND sc.subscription_timestamp >= ss.stripe_subscription_created_at
         AND sc.subscription_timestamp < ss.stripe_subscription_created_at + INTERVAL '1 hour'
     LEFT JOIN funnelfox_sessions sess
         ON ss.ff_session_id = sess.session_id
+    LEFT JOIN funnelfox_subscriptions ffs_profile
+        ON sess.session_profile_id = ffs_profile.subscription_profile_id
+        AND sc.subscription_timestamp >= ffs_profile.ff_subscription_created_at - INTERVAL '5 minutes'
+        AND sc.subscription_timestamp <= ffs_profile.ff_subscription_created_at + INTERVAL '5 minutes'
+        AND ffs_direct.ff_subscription_id IS NULL  -- Only if direct match failed
+        AND ffs_intent.ff_subscription_id IS NULL  -- Only if intent match failed
     LEFT JOIN funnels f
         ON sess.funnel_id = f.funnel_id
 )

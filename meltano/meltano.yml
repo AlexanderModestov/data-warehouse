@@ -60,6 +60,89 @@ plugins:
   - name: tap-appsflyer
     variant: singer-io
     pip_url: tap-appsflyer
+  - name: tap-ethoca
+    namespace: tap_ethoca
+    pip_url: -e ./tap-ethoca
+    executable: tap-ethoca
+    capabilities:
+      - state
+      - catalog
+      - discover
+    config:
+      consumer_key: ${ETHOCA_CONSUMER_KEY}
+      api_key: ${ETHOCA_API_KEY}
+      merchant_id: ${ETHOCA_MERCHANT_ID}
+      start_date: '2024-01-01T00:00:00Z'
+      sandbox: false
+    select:
+      - "alerts.*"
+  - name: tap-chargeback
+    namespace: tap_chargeback
+    pip_url: -e ./tap-chargeback
+    executable: tap-chargeback
+    capabilities:
+      - state
+      - catalog
+      - discover
+    config:
+      api_key: ${CHARGEBACK_IO_API_KEY}
+      api_base_url: https://api.chargeback.io/api/public/v1
+      start_date: '2024-01-01T00:00:00Z'
+    select:
+      - "chargeback_alerts.*"
+  - name: tap-funnelfox
+    namespace: tap_funnelfox
+    pip_url: -e ./tap-funnelfox
+    executable: tap-funnelfox
+    capabilities:
+      - state
+      - catalog
+      - discover
+    config:
+      api_key: ${FUNNEL_FOX_API}
+      start_date: '2024-01-01T00:00:00Z'
+      include_deleted_funnels: true
+      page_size: 50
+      request_timeout: 120
+    select:
+      - "funnels.*"
+      - "products.*"
+      - "sessions.*"
+      - "subscriptions.*"
+      - "profiles.*"
+      - "transactions.*"
+      - "session_replies.*"
+  - name: tap-facebook
+    variant: meltanolabs
+    pip_url: git+https://github.com/MeltanoLabs/tap-facebook.git
+    config:
+      account_id: ${FACEBOOK_ACCOUNT_ID}
+      app_id: ${FACEBOOK_APP_ID}
+      app_secret: ${FACEBOOK_APP_SECRET}
+      access_token: ${FACEBOOK_ACCESS_TOKEN}
+      start_date: '2024-01-01T00:00:00Z'
+      insights_lookback_window: 7  # Re-fetch last 7 days to capture data corrections
+      insight_reports_list:
+        - name: "default"
+          level: "ad"
+          time_increment: 1
+          action_attribution_windows:
+            - "1d_view"
+            - "7d_click"
+    select:
+      # Core entities
+      - "ads.*"
+      - "adsets.*"
+      - "campaigns.*"
+      - "ad_creatives.*"
+      - "ad_labels.*"
+      - "ad_accounts.*"
+      - "custom_conversions.*"
+      - "custom_audiences.*"
+      - "ad_images.*"
+      - "ad_videos.*"
+      # Insight reports (daily ad-level statistics)
+      - "adsinsights_default.*"
   - name: tap-postgres
     variant: meltanolabs
     pip_url: meltanolabs-tap-postgres
@@ -72,17 +155,42 @@ plugins:
       filter_schemas:
         - public
     select:
-      # Specify which tables to sync - replace with your actual table names
-       - "public-facebook_ad_accounts.*"
-       - "public-facebook_ad_statistics.*"
-       - "public-facebook_ads.*"
-       - "public-facebook_adsets.*"
-       - "public-facebook_apps.*"
-       - "public-facebook_campaigns.*"
-       - "public-onboarding_replies.*"
+      - "public-facebook_ad_accounts.*"
+      - "public-facebook_ad_statistics.*"
+      - "public-facebook_ads.*"
+      - "public-facebook_adsets.*"
+      - "public-facebook_apps.*"
+      - "public-facebook_campaigns.*"
+      - "public-onboarding_replies.*"
     metadata:
-      '*':
+      "public-facebook_ad_accounts":
         replication-method: FULL_TABLE
+        key-properties:
+          - id
+      "public-facebook_ad_statistics":
+        replication-method: FULL_TABLE
+        key-properties:
+          - id
+      "public-facebook_ads":
+        replication-method: FULL_TABLE
+        key-properties:
+          - id
+      "public-facebook_adsets":
+        replication-method: FULL_TABLE
+        key-properties:
+          - id
+      "public-facebook_apps":
+        replication-method: FULL_TABLE
+        key-properties:
+          - id
+      "public-facebook_campaigns":
+        replication-method: FULL_TABLE
+        key-properties:
+          - id
+      "public-onboarding_replies":
+        replication-method: FULL_TABLE
+        key-properties:
+          - id
   mappers:
   - name: meltano-map-transformer
     variant: meltano
@@ -97,6 +205,19 @@ plugins:
           "*":
             __key_properties__: []
             timeline_hidden: int(record.get('timeline_hidden')) if record.get('timeline_hidden') is not None else record.get('timeline_hidden')
+            user_agent: record.get('user_agent', '').encode('utf-8', errors='surrogateescape').decode('utf-8', errors='replace') if record.get('user_agent') else record.get('user_agent')
+            device_model: record.get('device_model', '').encode('utf-8', errors='surrogateescape').decode('utf-8', errors='replace') if record.get('device_model') else record.get('device_model')
+            device_type: record.get('device_type', '').encode('utf-8', errors='surrogateescape').decode('utf-8', errors='replace') if record.get('device_type') else record.get('device_type')
+            device_family: record.get('device_family', '').encode('utf-8', errors='surrogateescape').decode('utf-8', errors='replace') if record.get('device_family') else record.get('device_family')
+            device_brand: record.get('device_brand', '').encode('utf-8', errors='surrogateescape').decode('utf-8', errors='replace') if record.get('device_brand') else record.get('device_brand')
+            device_manufacturer: record.get('device_manufacturer', '').encode('utf-8', errors='surrogateescape').decode('utf-8', errors='replace') if record.get('device_manufacturer') else record.get('device_manufacturer')
+            os_name: record.get('os_name', '').encode('utf-8', errors='surrogateescape').decode('utf-8', errors='replace') if record.get('os_name') else record.get('os_name')
+            os_version: record.get('os_version', '').encode('utf-8', errors='surrogateescape').decode('utf-8', errors='replace') if record.get('os_version') else record.get('os_version')
+            city: record.get('city', '').encode('utf-8', errors='surrogateescape').decode('utf-8', errors='replace') if record.get('city') else record.get('city')
+            region: record.get('region', '').encode('utf-8', errors='surrogateescape').decode('utf-8', errors='replace') if record.get('region') else record.get('region')
+            country: record.get('country', '').encode('utf-8', errors='surrogateescape').decode('utf-8', errors='replace') if record.get('country') else record.get('country')
+            language: record.get('language', '').encode('utf-8', errors='surrogateescape').decode('utf-8', errors='replace') if record.get('language') else record.get('language')
+            ip_address: record.get('ip_address', '').encode('utf-8', errors='surrogateescape').decode('utf-8', errors='replace') if record.get('ip_address') else record.get('ip_address')
 
   loaders:
   - name: target-postgres
@@ -112,6 +233,29 @@ plugins:
       ssl_mode: require
       flattening_enabled: true
       flattening_max_depth: 0
-      batch_size_rows: 500
+      batch_size_rows: 50
       validate_records: false
-      max_parallelism: 1 
+      max_parallelism: 1
+      load_method: upsert
+      primary_keys:
+        # Facebook insights - composite key for daily ad metrics
+        adsinsights_default: ["ad_id", "date_start"]
+        # Facebook entities - single primary key
+        ads: ["id"]
+        adsets: ["id"]
+        campaigns: ["id"]
+        ad_creatives: ["id"]
+        ad_labels: ["id"]
+        ad_accounts: ["id"]
+        custom_conversions: ["id"]
+        custom_audiences: ["id"]
+        ad_images: ["id"]
+        ad_videos: ["id"]
+        # Postgres source tables
+        public-facebook_ad_accounts: ["id"]
+        public-facebook_ad_statistics: ["id"]
+        public-facebook_ads: ["id"]
+        public-facebook_adsets: ["id"]
+        public-facebook_apps: ["id"]
+        public-facebook_campaigns: ["id"]
+        public-onboarding_replies: ["id"] 

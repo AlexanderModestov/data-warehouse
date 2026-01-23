@@ -33,7 +33,7 @@ FunnelFox subscription records linking to payment providers.
 | Column | Description |
 |--------|-------------|
 | `id` | FunnelFox subscription ID |
-| `psp_id` | Payment Service Provider ID (links to Stripe charge ID) |
+| `psp_id` | Payment Service Provider ID (links to Stripe subscription ID) |
 | `profile_id` | User profile ID |
 | `created_at` | Subscription creation timestamp |
 | `status` | Subscription status |
@@ -276,6 +276,53 @@ Product events from Amplitude.
 | `visa_successful_count` | not null | Visa successful transactions |
 | `total_successful_count` | not null | Total successful transactions |
 
+#### mart_marketing_performance
+**Grain:** One row per date + campaign + adset + ad
+**Primary Key:** Composite (date, facebook_ad_id)
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `date` | not null | Date of the metrics |
+| `facebook_campaign_id` | not null | Facebook campaign identifier |
+| `facebook_adset_id` | not null | Facebook adset identifier |
+| `facebook_ad_id` | not null | Facebook ad identifier |
+| `funnel_id` | | FunnelFox funnel identifier |
+| `funnel_title` | | Funnel name |
+| `campaign_name` | | Facebook campaign name |
+| `adset_name` | | Facebook adset name |
+| `ad_name` | | Facebook ad creative name (Creo) |
+| `spend_usd` | | Total spend in USD |
+| `impressions` | | Total impressions (IMPRESS) |
+| `clicks` | | Total clicks (CLICKS) |
+| `cpm` | | Cost per mille (spend / impressions * 1000) |
+| `cpc` | | Cost per click (CPC) |
+| `ctr` | | Click-through rate (CTR) |
+| `hook_rate` | | Video hook rate (3-sec plays / impressions) |
+| `hold_rate` | | Video hold rate (thru-plays / 3-sec plays) |
+| `installs` | | App installs from AppsFlyer (INSTALL) |
+| `cost_per_install` | | Cost per install ($Install) |
+| `click_to_install_rate` | | Click to install rate (Click2Install) |
+| `registrations` | | Facebook-attributed registrations (REG) |
+| `purchases` | | Facebook-attributed purchases (FTD) |
+| `install_to_reg_rate` | | Install to registration rate (Inst2Reg) |
+| `reg_to_ftd_rate` | | Registration to FTD rate (R2D) |
+| `cost_per_registration` | | Cost per registration ($REG) |
+| `cost_per_ftd` | | Cost per FTD ($FTD) |
+| `cr_1to2_screen` | | CR 1to2scr - First to second screen rate |
+| `cr_to_paywall` | | CR to paywall - Sessions reaching paywall |
+| `paywall_cvr` | | pCVR - Paywall conversion rate |
+| `upsell_cr` | | Upsell CR - Upsell conversion rate |
+| `attributed_sessions` | | Sessions from our attribution |
+| `attributed_users` | | Unique users attributed |
+| `attributed_conversions` | | Conversions from our attribution |
+| `revenue_usd` | | Attributed revenue (USD) |
+| `roas` | | Return on Ad Spend |
+| `arpu` | | Average Revenue Per User |
+| `cac` | | Customer Acquisition Cost |
+| `roi_6m` | | Projected 6-month ROI |
+| `roi_12m` | | Projected 12-month ROI |
+| `ltv_12m` | | Projected 12-month LTV |
+
 ---
 
 ## Key Relationships
@@ -290,6 +337,9 @@ raw_funnelfox.subscriptions.psp_id ────> raw_stripe.charges.id
 raw_stripe.charges.payment_intent ─────> Groups multiple retry attempts
 
 raw_amplitude.events.user_id ──────────> raw_funnelfox.sessions.profile_id
+
+raw_appsflyer.installs.ad_id ──────────> raw_facebook.facebook_ads.facebook_ad_id
+raw_appsflyer.installs.customer_user_id > raw_funnelfox.sessions.profile_id
 ```
 
 ## Business Rules

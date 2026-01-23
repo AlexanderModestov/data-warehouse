@@ -1,0 +1,112 @@
+version: 2
+
+models:
+  - name: stg_facebook_new__ad_statistics
+    description: |
+      Staging model that transforms raw_facebook_new.adsinsights_default
+      into the same structure as raw_facebook.facebook_ad_statistics.
+
+      This enables switching from the old Facebook extractor to the new one
+      while maintaining compatibility with existing downstream models.
+
+      Key transformations:
+      - Renames columns to match old schema (ad_id -> facebook_ad_id, etc.)
+      - Extracts conversion values from actions array (purchases, leads, registrations)
+      - Extracts costs from cost_per_action_type array
+      - Calculates hook_rate and hold_rate from video metrics
+      - Casts text columns to proper numeric/date types
+    columns:
+      - name: id
+        description: Unique row identifier
+      - name: source
+        description: Source identifier ('facebook_new')
+      - name: facebook_ad_id
+        description: Facebook ad identifier
+      - name: facebook_adset_id
+        description: Facebook adset identifier
+      - name: facebook_campaign_id
+        description: Facebook campaign identifier
+      - name: facebook_account_id
+        description: Facebook ad account identifier
+      - name: report_date
+        description: Date of the metrics
+      - name: amount_spent
+        description: Amount spent in account currency
+      - name: impressions
+        description: Number of impressions
+      - name: clicks
+        description: Number of clicks
+      - name: purchases
+        description: Number of purchases (extracted from actions array)
+      - name: leads
+        description: Number of leads (extracted from actions array)
+      - name: registrations_completed
+        description: Number of registrations (extracted from actions array)
+
+  - name: stg_facebook_new__campaigns
+    description: |
+      Staging model that transforms raw_facebook_new.campaigns
+      into the same structure as raw_facebook.facebook_campaigns.
+    columns:
+      - name: id
+        description: Unique row identifier
+      - name: facebook_campaign_id
+        description: Facebook campaign identifier
+      - name: facebook_account_id
+        description: Facebook ad account identifier
+      - name: campaign_name
+        description: Campaign name
+      - name: objective
+        description: Campaign objective
+      - name: status
+        description: Campaign status
+      - name: effective_status
+        description: Effective campaign status
+
+  - name: stg_facebook_new__ads
+    description: |
+      Staging model that transforms raw_facebook_new.ads
+      into the same structure as raw_facebook.facebook_ads.
+    columns:
+      - name: id
+        description: Unique row identifier
+      - name: facebook_ad_id
+        description: Facebook ad identifier
+      - name: facebook_adset_id
+        description: Facebook adset identifier
+      - name: facebook_campaign_id
+        description: Facebook campaign identifier
+      - name: facebook_account_id
+        description: Facebook ad account identifier
+      - name: ad_name
+        description: Ad creative name
+      - name: status
+        description: Ad status
+      - name: effective_status
+        description: Effective ad status
+
+  - name: stg_facebook_new__adsets
+    description: |
+      Staging model that transforms raw_facebook_new.adsets
+      into the same structure as raw_facebook.facebook_adsets.
+    columns:
+      - name: id
+        description: Unique row identifier
+      - name: facebook_adset_id
+        description: Facebook adset identifier
+      - name: facebook_campaign_id
+        description: Facebook campaign identifier
+      - name: facebook_account_id
+        description: Facebook ad account identifier
+      - name: adset_name
+        description: Adset name
+      - name: status
+        description: Adset status
+      - name: effective_status
+        description: Effective adset status
+      - name: daily_budget
+        description: Daily budget in USD (converted from cents)
+      - name: lifetime_budget
+        description: Lifetime budget in USD (converted from cents)
+      - name: target_countries
+        description: Target countries (extracted from targeting JSON)

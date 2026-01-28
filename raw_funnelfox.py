@@ -1,6 +1,7 @@
 import os
 import json
 import time
+from datetime import datetime, timedelta
 from pathlib import Path
 
 import requests
@@ -187,6 +188,7 @@ def fetch_all(endpoint: str, params: dict | None = None, conn=None, insert_func=
                 insert_func(conn, page_items)
                 print(f"  -> Inserted page {page_num} to database")
             except Exception as e:
+                conn.rollback()
                 print(f"  Warning: Failed to insert page {page_num}: {e}")
 
         # Save cursor after each successful page
@@ -249,6 +251,51 @@ def get_record_count(conn, table: str) -> int:
         return cur.fetchone()[0]
 
 
+def get_incremental_params(conn, endpoint: str, full_refresh: bool = False) -> dict:
+    """
+    Get filter parameters for incremental loading.
+    Returns empty dict for full refresh or if no existing data.
+
+    Incremental strategy:
+    - sessions: filter by created_at (immutable after creation)
+    - subscriptions: filter by updated_at (status can change)
+    - transactions: filter by created_at (immutable)
+    - others: full refresh (small datasets or need full state)
+    """
+    if full_refresh:
+        return {}
+
+    # Map endpoints to their incremental filter config
+    incremental_config = {
+        "sessions": {"table": "sessions", "column": "created_at", "filter_key": "filter[created_at_gte]"},
+        "subscriptions": {"table": "subscriptions", "column": "updated_at", "filter_key": "filter[updated_at_gte]"},
+        "transactions": {"table": "transactions", "column": "created_at", "filter_key": "filter[created_at_gte]"},
+    }
+
+    if endpoint not in incremental_config:
+        return {}
+
+    config = incremental_config[endpoint]
+    last_ts = get_latest_timestamp(conn, config["table"], config["column"])
+
+    if not last_ts:
+        print(f"  No existing data in {config['table']}, doing full fetch")
+        return {}
+
+    # Subtract 1 hour buffer to catch any records that might have been missed
+    # due to clock skew or processing delays
+    try:
+        ts = datetime.fromisoformat(last_ts.replace('Z', '+00:00'))
+        ts_with_buffer = ts - timedelta(hours=1)
+        filter_value = ts_with_buffer.strftime("%Y-%m-%dT%H:%M:%S")
+    except (ValueError, AttributeError):
+        # If parsing fails, use the original timestamp
+        filter_value = last_ts
+
+    print(f"  Incremental mode: fetching {endpoint} where {config['column']} >= {filter_value}")
+    return {config["filter_key"]: filter_value}
+
+
 def init_schema(conn):
     """Initialize database schema and tables."""
     with conn.cursor() as cur:
@@ -281,8 +328,7 @@ def insert_funnels(conn, data: list[dict]) -> None:
                 title = EXCLUDED.title,
                 type = EXCLUDED.type,
                 variation_count = EXCLUDED.variation_count,
-                version = EXCLUDED.version,
-                loaded_at = CURRENT_TIMESTAMP
+                version = EXCLUDED.version
         """
         values = [
             (
@@ -291,7 +337,7 @@ def insert_funnels(conn, data: list[dict]) -> None:
                 item.get("environment"),
                 item.get("last_published_at"),
                 item.get("status"),
-                item.get("tags", []),
+                psycopg2.extras.Json(item.get("tags", [])),
                 item.get("title"),
                 item.get("type"),
                 item.get("variation_count"),
@@ -314,8 +360,7 @@ def insert_products(conn, data: list[dict]) -> None:
             INSERT INTO raw_funnelfox.products (id, data)
             VALUES %s
             ON CONFLICT (id) DO UPDATE SET
-                data = EXCLUDED.data,
-                loaded_at = CURRENT_TIMESTAMP
+                data = EXCLUDED.data
         """
         values = [
             (item.get("id"), json.dumps(item))
@@ -346,8 +391,7 @@ def insert_sessions(conn, data: list[dict]) -> None:
                 origin = EXCLUDED.origin,
                 postal = EXCLUDED.postal,
                 profile_id = EXCLUDED.profile_id,
-                user_agent = EXCLUDED.user_agent,
-                loaded_at = CURRENT_TIMESTAMP
+                user_agent = EXCLUDED.user_agent
         """
         values = [
             (
@@ -398,8 +442,7 @@ def insert_subscriptions(conn, data: list[dict]) -> None:
                 renews = EXCLUDED.renews,
                 sandbox = EXCLUDED.sandbox,
                 status = EXCLUDED.status,
-                updated_at = EXCLUDED.updated_at,
-                loaded_at = CURRENT_TIMESTAMP
+                updated_at = EXCLUDED.updated_at
         """
         values = [
             (
@@ -439,8 +482,7 @@ def insert_profiles(conn, data: list[dict]) -> None:
             INSERT INTO raw_funnelfox.profiles (id, data)
             VALUES %s
             ON CONFLICT (id) DO UPDATE SET
-                data = EXCLUDED.data,
-                loaded_at = CURRENT_TIMESTAMP
+                data = EXCLUDED.data
         """
         values = [
             (item.get("id"), json.dumps(item))
@@ -461,8 +503,7 @@ def insert_transactions(conn, data: list[dict]) -> None:
             INSERT INTO raw_funnelfox.transactions (id, data)
             VALUES %s
             ON CONFLICT (id) DO UPDATE SET
-                data = EXCLUDED.data,
-                loaded_at = CURRENT_TIMESTAMP
+                data = EXCLUDED.data
         """
         values = [
             (item.get("id"), json.dumps(item))
@@ -484,8 +525,7 @@ def insert_session_replies(conn, session_id: str, data: list[dict]) -> None:
             VALUES %s
             ON CONFLICT (id) DO UPDATE SET
                 session_id = EXCLUDED.session_id,
-                data = EXCLUDED.data,
-                loaded_at = CURRENT_TIMESTAMP
+                data = EXCLUDED.data
         """
         values = [
             (item.get("id"), session_id, json.dumps(item))
@@ -596,9 +636,13 @@ def main():
     import argparse
     parser = argparse.ArgumentParser(description="FunnelFox data loader")
     parser.add_argument("--reset", action="store_true", help="Clear saved cursors and start fresh")
+    parser.add_argument("--full", action="store_true", help="Force full refresh (ignore incremental logic)")
     parser.add_argument("--skip-replies", action="store_true", help="Skip fetching session replies")
     parser.add_argument("--only", type=str, help="Only export specific endpoint (sessions, subscriptions, etc.)")
     args = parser.parse_args()
+
+    if args.full:
+        print("Full refresh mode enabled - will fetch all data from scratch")
 
     # Clear cursors if requested
     if args.reset:
@@ -644,21 +688,41 @@ def main():
 
         sessions_data = []  # Store sessions for fetching replies later
 
-        # Endpoint-specific params
-        endpoint_params = {
+        # Endpoint-specific static params (always applied)
+        static_params = {
             "funnels": {"filter[deleted]": "true"},  # Include deleted funnels for FK integrity
         }
+
+        # Endpoints that support incremental loading
+        incremental_endpoints = {"sessions", "subscriptions", "transactions"}
 
         for name, endpoint in endpoints.items():
             print(f"\nExporting {name} ...")
 
             insert_func = insert_functions.get(name)
-            params = endpoint_params.get(name, {})
 
-            # Check for existing cursor
-            cursors = load_cursors()
-            if endpoint in cursors:
-                print(f"  Found saved cursor - will resume from where we left off")
+            # Show current record count for reference
+            try:
+                current_count = get_record_count(conn, name)
+                print(f"  Current records in database: {current_count}")
+            except Exception:
+                current_count = 0
+
+            # Start with static params for this endpoint
+            params = static_params.get(name, {}).copy()
+
+            # Add incremental params if supported and not doing full refresh
+            if name in incremental_endpoints:
+                incremental_params = get_incremental_params(conn, endpoint, full_refresh=args.full)
+                params.update(incremental_params)
+                if incremental_params:
+                    # Don't use cursor resume for incremental loads - start fresh with date filter
+                    clear_cursor(endpoint)
+            else:
+                # Check for existing cursor for non-incremental endpoints
+                cursors = load_cursors()
+                if endpoint in cursors:
+                    print(f"  Found saved cursor - will resume from where we left off")
 
             # Fetch with cursor-based resumability
             data = fetch_all(endpoint, params=params, conn=conn, insert_func=insert_func, resume=True)
@@ -680,7 +744,18 @@ def main():
         elif args.skip_replies:
             print("\nSkipping session replies (--skip-replies flag)")
 
-        print("\nAll data successfully loaded into PostgreSQL!")
+        # Print final summary
+        print("\n" + "=" * 50)
+        print("SYNC COMPLETE - Final record counts:")
+        print("=" * 50)
+        for name in endpoints.keys():
+            try:
+                count = get_record_count(conn, name)
+                print(f"  {name}: {count}")
+            except Exception:
+                pass
+        print("=" * 50)
+        print("All data successfully loaded into PostgreSQL!")
 
     except Exception as e:
         print(f"Error: {e}")

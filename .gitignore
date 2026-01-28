@@ -1,6 +1,8 @@
 # Secrets and credentials
 .env
+dashboard/.env
 secret.txt
+.playwright-mcp
 
 # Python virtual environment
 .venv/

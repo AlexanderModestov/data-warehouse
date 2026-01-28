@@ -228,6 +228,13 @@ SELECT
     c.failure_code,
     c.failure_category,
     c.recovery_action,
+    c.description,
+
+    -- Retry tracking fields
+    c.attempt_number,
+    c.is_first_attempt,
+    c.is_final_attempt,
+    c.intent_eventually_succeeded,
 
     -- Card info
     c.card_brand,
@@ -254,6 +261,7 @@ SELECT
     -- Refund fields (from embedded data on charges)
     c.has_refund_embedded AS is_refunded,
     c.refund_amount_embedded AS refund_amount_usd,
+    c.amount_usd - c.refund_amount_embedded AS net_revenue_usd,
     c.refund_amount_embedded >= c.amount_usd AS is_fully_refunded,
     CASE
         WHEN c.amount_usd > 0
@@ -283,6 +291,7 @@ SELECT
     -- Funnel & traffic info (nullable)
     f.funnel_id,
     f.funnel_title,
+    f.funnel_title AS funnel_name,  -- Alias for backwards compatibility
     f.funnel_type,
     f.funnel_environment,
     sess.country,
@@ -301,7 +310,7 @@ SELECT
     -- Organic flag (no FunnelFox linkage)
     ff.ff_subscription_id IS NULL AS is_organic
 
-FROM charges_with_categories c
+FROM charges_with_retry_info c
 
 -- Payment intent linkage
 LEFT JOIN payment_intents pi

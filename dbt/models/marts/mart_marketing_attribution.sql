@@ -138,6 +138,8 @@ session_payments AS (
     LEFT JOIN {{ source('raw_funnelfox', 'subscriptions') }} fs
         ON COALESCE(sc.subscription_id, subs.id) = fs.psp_id
         AND fs.sandbox = FALSE
+
+    WHERE fnl.environment = 'prod'
 ),
 
 -- =============================================================================
@@ -196,7 +198,7 @@ facebook_campaigns_by_id AS (
         facebook_campaign_id,
         campaign_name,
         objective AS campaign_objective
-    FROM {{ source('raw_facebook', 'facebook_campaigns') }}
+    FROM {{ ref('stg_facebook_new__campaigns') }}
     ORDER BY facebook_campaign_id, created_time DESC
 ),
 
@@ -209,7 +211,7 @@ facebook_campaigns_by_name AS (
         -- Create URL-encoded version for matching (spaces -> +, commas -> %2C)
         REPLACE(REPLACE(campaign_name, ' ', '+'), ',', '%2C') AS campaign_name_encoded,
         objective AS campaign_objective
-    FROM {{ source('raw_facebook', 'facebook_campaigns') }}
+    FROM {{ ref('stg_facebook_new__campaigns') }}
     WHERE campaign_name IS NOT NULL
     ORDER BY campaign_name, created_time DESC
 ),

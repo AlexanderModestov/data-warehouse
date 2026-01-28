@@ -1,115 +1,6 @@
 version: 2
 
 models:
-  - name: mart_new_subscriptions
-    description: |
-      New subscriptions with revenue and acquisition context.
-      Grain: One row per new subscription (Stripe charge with description = 'Subscription creation').
-
-      Data Sources (priority order):
-      1. Stripe charges - Primary source of truth for all payments
-      2. FunnelFox subscriptions - Additional context when available (via psp_id linkage)
-      3. Stripe subscriptions - Session linkage via metadata->>'ff_session_id'
-      4. FunnelFox sessions/funnels - Funnel context when available
-
-      Use cases:
-      - Daily subscription revenue reporting
-      - Funnel performance analysis
-      - Geographic revenue breakdown
-      - Time-to-convert analysis
-      - Organic vs funnel-driven subscription tracking
-    columns:
-      - name: subscription_id
-        description: Stripe charge ID for the subscription payment (primary key)
-        tests:
-          - unique
-          - not_null
-
-      - name: customer_id
-        description: Stripe customer ID
-
-      - name: user_profile_id
-        description: FunnelFox profile ID (may be null for organic subscriptions)
-
-      - name: funnelfox_subscription_id
-        description: FunnelFox subscription identifier (null for organic)
-
-      - name: subscription_date
-        description: Date of subscription (UTC)
-        tests:
-          - not_null
-
-      - name: subscription_timestamp
-        description: Exact timestamp of subscription (UTC)
-
-      - name: revenue_usd
-        description: Revenue in USD from Stripe charge (source of truth)
-        tests:
-          - not_null
-
-      - name: currency
-        description: Currency code for the charge
-
-      - name: subscription_price_usd
-        description: Subscription price from FunnelFox (USD), may differ from actual charge
-
-      - name: payment_provider
-        description: Payment provider (e.g., stripe, apple, google)
-
-      - name: billing_interval
-        description: Billing interval (month, year, etc.)
-
-      - name: billing_interval_count
-        description: Number of billing intervals
-
-      - name: subscription_status
-        description: FunnelFox subscription status
-
-      - name: funnel_id
-        description: ID of the funnel that led to conversion (null for organic)
-
-      - name: funnel_title
-        description: Name of the funnel
-
-      - name: funnel_type
-        description: Type of funnel
-
-      - name: funnel_environment
-        description: Funnel environment (dev, staging, prod)
-
-      - name: country
-        description: User's country (from session or card country)
-
-      - name: city
-        description: User's city from session
-
-      - name: traffic_source
-        description: Traffic source/origin from session
-
-      - name: first_session_at
-        description: Timestamp of user's first session
-
-      - name: hours_to_convert
-        description: Hours from first session to subscription
-
-      - name: payment_type
-        description: Payment type (subscription or one_time) based on billing_interval
-        tests:
-          - not_null
-          - accepted_values:
-              values: ['subscription', 'one_time']
-
-      - name: is_organic
-        description: TRUE when no FunnelFox subscription exists (direct/organic conversion)
-        tests:
-          - not_null
-
-      - name: card_brand
-        description: Card brand (visa, mastercard, amex, etc.)
-
-      - name: card_country
-        description: Card country of issue
-
   - name: mart_funnel_conversions
     description: |
       Funnel session conversion tracking.
@@ -239,163 +130,6 @@ models:
       - name: conversion_date
         description: Date of conversion (null if not converted)
 
-  - name: mart_stripe_payments
-    description: |
-      Stripe payment attempts with success/failure tracking and retry intelligence.
-      Grain: One row per payment attempt (charge).
-
-      Use cases:
-      - Payment success/failure rate monitoring
-      - Failure diagnosis by category and recovery action
-      - Retry and recovery rate analysis
-      - Revenue and failed revenue tracking by funnel/geo/time
-    columns:
-      - name: charge_id
-        description: Stripe charge ID (primary key)
-        tests:
-          - unique
-          - not_null
-
-      - name: payment_intent_id
-        description: Payment intent ID (groups retry attempts together)
-
-      - name: customer_id
-        description: Stripe customer ID
-
-      - name: profile_id
-        description: FunnelFox master user ID
-
-      - name: status
-        description: Payment status (succeeded, failed, pending)
-        tests:
-          - not_null
-          - accepted_values:
-              values: ['succeeded', 'failed', 'pending']
-
-      - name: is_successful
-        description: Boolean flag for successful payment
-        tests:
-          - not_null
-
-      - name: amount_usd
-        description: Payment amount in USD (converted from cents)
-        tests:
-          - not_null
-
-      - name: currency
-        description: Original currency code
-
-      - name: refunded_amount_usd
-        description: Amount refunded in USD (from Stripe amount_refunded field)
-
-      - name: has_refund
-        description: True if this charge has been refunded
-
-      - name: net_revenue_usd
-        description: Net revenue after refunds (amount_usd - refunded_amount_usd)
-
-      - name: failure_code
-        description: Raw Stripe failure code (null if succeeded)
-
-      - name: failure_category
-        description: Categorized failure type
-        tests:
-          - accepted_values:
-              values: ['insufficient_funds', 'card_declined', 'fraud_block', 'authentication_required', 'expired_card', 'invalid_card', 'processing_error', 'technical_error']
-              config:
-                where: "status = 'failed'"
-
-      - name: recovery_action
-        description: Suggested recovery action for failed payments
-        tests:
-          - accepted_values:
-              values: ['retry_eligible', 'request_new_card', 'verify_3ds', 'contact_support']
-              config:
-                where: "status = 'failed'"
-
-      - name: attempt_number
-        description: Attempt number within payment intent (1, 2, 3...)
-        tests:
-          - not_null
-
-      - name: is_first_attempt
-        description: True if this is the first attempt for this payment intent
-        tests:
-          - not_null
-
-      - name: is_final_attempt
-        description: True if this is the last attempt for this payment intent
-        tests:
-          - not_null
-
-      - name: intent_eventually_succeeded
-        description: True if any attempt in this payment intent succeeded
-        tests:
-          - not_null
-
-      - name: ff_session_id
-        description: FunnelFox session ID linked via Stripe subscription metadata
-
-      - name: session_eventually_succeeded
-        description: True if any payment in this funnel session succeeded
-
-      - name: is_recovered_failure
-        description: True if this was a failed first attempt but the session eventually had a successful payment
-
-      - name: is_lost_payment
-        description: True if this payment failed and the session never had a successful payment
-
-      - name: created_at
-        description: Payment attempt timestamp (UTC)
-        tests:
-          - not_null
-
-      - name: created_date
-        description: Payment date (UTC)
-        tests:
-          - not_null
-
-      - name: hour_of_day
-        description: Hour of day (0-23)
-
-      - name: day_of_week
-        description: Day of week name
-
-      - name: week_start_date
-        description: Monday of the week
-
-      - name: month_start_date
-        description: First of the month
-
-      - name: is_organic
-        description: TRUE if payment has no FunnelFox subscription (direct/organic conversion)
-        tests:
-          - not_null
-
-      - name: description
-        description: Payment description from Stripe charge (e.g., "Subscription creation", "Subscription update")
-
-      - name: funnel_name
-        description: Funnel that drove this user
-
-      - name: traffic_source
-        description: Traffic source (utm_source or origin)
-
-      - name: traffic_medium
-        description: Traffic medium (utm_medium)
-
-      - name: traffic_campaign
-        description: Traffic campaign (utm_campaign)
-
-      - name: card_country
-        description: Card country of issue
-
-      - name: customer_country
-        description: Customer billing country
-
-      - name: card_brand
-        description: Card brand (visa, mastercard, amex, etc.)
-
   - name: mart_stripe_payments_daily
     description: |
       Daily aggregated Stripe payment metrics.
@@ -460,17 +194,11 @@ models:
       - name: refund_rate
         description: Refund rate (refunded_usd / gross_revenue_usd)
 
-      - name: lost_payments
-        description: Count of failed payments where the session never had a successful payment
+      - name: aov_all_tries_usd
+        description: Average order value across all attempts ((gross_revenue + failed_revenue) / total_attempts)
 
-      - name: lost_revenue_usd
-        description: Sum of lost payment amounts (failed with no session recovery)
-
-      - name: recovered_payments
-        description: Count of failed first attempts where session eventually succeeded
-
-      - name: recovered_revenue_usd
-        description: Sum of recovered payment amounts
+      - name: aov_success_usd
+        description: Average order value for successful payments (gross_revenue / successful_payments)
 
       - name: failures_insufficient_funds
         description: Count of insufficient funds failures
@@ -1268,14 +996,6 @@ models:
       - name: cac
         description: Customer Acquisition Cost (spend / conversions)
 
-      - name: roi_6m
-        description: Projected 6-month ROI ((ARPU * 6 - CAC) / CAC)
-
-      - name: roi_12m
-        description: Projected 12-month ROI ((ARPU * 12 - CAC) / CAC)
-
-      - name: ltv_12m
-        description: Projected 12-month LTV (ARPU * 12)
 
   - name: mart_master_charges
     description: |
@@ -1351,6 +1071,29 @@ models:
               config:
                 where: "status = 'failed'"
 
+      - name: description
+        description: Payment description from Stripe (e.g., "Subscription creation", "Subscription update", "Payment for invoice")
+
+      - name: attempt_number
+        description: Attempt number within payment intent (1, 2, 3...)
+        tests:
+          - not_null
+
+      - name: is_first_attempt
+        description: True if this is the first attempt for this payment intent
+        tests:
+          - not_null
+
+      - name: is_final_attempt
+        description: True if this is the last/most recent attempt for this payment intent
+        tests:
+          - not_null
+
+      - name: intent_eventually_succeeded
+        description: True if any attempt in this payment intent succeeded
+        tests:
+          - not_null
+
       - name: card_brand
         description: Card brand (visa, mastercard, etc.)
 
@@ -1362,6 +1105,15 @@ models:
 
       - name: card_last4
         description: Last 4 digits of card
+
+      - name: card_bin
+        description: Card BIN (Bank Identification Number) - first 6 digits
+
+      - name: card_issuer
+        description: Card issuing bank/institution
+
+      - name: card_product
+        description: Card product type (e.g., World, Platinum)
 
       - name: customer_country
         description: Customer billing country
@@ -1414,6 +1166,26 @@ models:
       - name: refund_ratio
         description: Refund amount / charge amount
 
+      - name: net_revenue_usd
+        description: Net revenue after refunds (amount_usd - refund_amount_usd)
+        tests:
+          - not_null
+
+      - name: intent_status
+        description: Payment intent status
+
+      - name: intent_canceled_at
+        description: Payment intent cancellation timestamp (if canceled)
+
+      - name: intent_cancellation_reason
+        description: Reason for payment intent cancellation
+
+      - name: intent_description
+        description: Payment intent description
+
+      - name: intent_created_at
+        description: Payment intent creation timestamp
+
       - name: profile_id
         description: FunnelFox user profile ID (nullable)
 
@@ -1441,7 +1213,7 @@ models:
       - name: funnel_id
         description: Funnel ID (nullable)
 
-      - name: funnel_title
+      - name: funnel_name
         description: Funnel name (nullable)
 
       - name: funnel_type

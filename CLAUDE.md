@@ -319,9 +319,6 @@ Product events from Amplitude.
 | `roas` | | Return on Ad Spend |
 | `arpu` | | Average Revenue Per User |
 | `cac` | | Customer Acquisition Cost |
-| `roi_6m` | | Projected 6-month ROI |
-| `roi_12m` | | Projected 12-month ROI |
-| `ltv_12m` | | Projected 12-month LTV |
 
 ---
 

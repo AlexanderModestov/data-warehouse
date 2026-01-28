@@ -55,7 +55,7 @@ WITH facebook_stats AS (
         COALESCE(SUM(purchases), 0) AS fb_purchases,
         COALESCE(SUM(leads), 0) AS fb_leads
 
-    FROM {{ source('raw_facebook', 'facebook_ad_statistics') }}
+    FROM {{ ref('stg_facebook_new__ad_statistics') }}
     WHERE report_date IS NOT NULL
       AND facebook_ad_id IS NOT NULL
     GROUP BY
@@ -166,7 +166,7 @@ campaign_meta AS (
         campaign_name,
         objective AS campaign_objective,
         status AS campaign_status
-    FROM {{ source('raw_facebook', 'facebook_campaigns') }}
+    FROM {{ ref('stg_facebook_new__campaigns') }}
     WHERE facebook_campaign_id IS NOT NULL
     ORDER BY facebook_campaign_id, created_time DESC
 ),
@@ -177,7 +177,7 @@ adset_meta AS (
         adset_name,
         target_countries,
         status AS adset_status
-    FROM {{ source('raw_facebook', 'facebook_adsets') }}
+    FROM {{ ref('stg_facebook_new__adsets') }}
     WHERE facebook_adset_id IS NOT NULL
     ORDER BY facebook_adset_id, created_time DESC
 ),
@@ -187,7 +187,7 @@ ad_meta AS (
         facebook_ad_id,
         ad_name,
         status AS ad_status
-    FROM {{ source('raw_facebook', 'facebook_ads') }}
+    FROM {{ ref('stg_facebook_new__ads') }}
     WHERE facebook_ad_id IS NOT NULL
     ORDER BY facebook_ad_id, created_time DESC
 ),
@@ -509,23 +509,7 @@ final AS (
         CASE
             WHEN attributed_conversions > 0 THEN spend_usd / attributed_conversions
             ELSE NULL
-        END AS cac,
-
-        -- Projected ROI (using ARPU as monthly value estimate)
-        CASE
-            WHEN spend_usd > 0 AND attributed_conversions > 0 THEN
-                ((revenue_usd / attributed_conversions) * 6 - (spend_usd / attributed_conversions)) / (spend_usd / attributed_conversions)
-            ELSE NULL
-        END AS roi_6m,
-        CASE
-            WHEN spend_usd > 0 AND attributed_conversions > 0 THEN
-                ((revenue_usd / attributed_conversions) * 12 - (spend_usd / attributed_conversions)) / (spend_usd / attributed_conversions)
-            ELSE NULL
-        END AS roi_12m,
-        CASE
-            WHEN attributed_conversions > 0 THEN (revenue_usd / attributed_conversions) * 12
-            ELSE NULL
-        END AS ltv_12m
+        END AS cac
 
     FROM combined
 )

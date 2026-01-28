@@ -10,16 +10,33 @@
     Purpose: Daily aggregated payment metrics for dashboards and trend analysis
     Grain: One row per day + funnel + card_country + card_brand + description
 
-    Built on top of mart_stripe_payments for consistent business logic
+    Built on top of mart_master_charges (single source of truth for payment analytics)
 
     Description values from Stripe:
     - "Subscription creation" - New subscription
     - "Subscription update" - Subscription modification
+    - "Payment for invoice" - Recurring payment
     - etc.
 */
 
 WITH payments AS (
-    SELECT * FROM {{ ref('mart_stripe_payments') }}
+    SELECT
+        charge_id,
+        payment_intent_id,
+        created_date,
+        funnel_name,
+        card_country,
+        card_brand,
+        description,
+        is_successful,
+        amount_usd,
+        refund_amount_usd AS refunded_amount_usd,
+        is_refunded AS has_refund,
+        net_revenue_usd,
+        failure_category,
+        is_first_attempt,
+        intent_eventually_succeeded
+    FROM {{ ref('mart_master_charges') }}
 ),
 
 -- Aggregate by date and dimensions
@@ -44,12 +61,6 @@ daily_metrics AS (
         SUM(CASE WHEN is_successful THEN refunded_amount_usd ELSE 0 END) AS refunded_usd,
         SUM(CASE WHEN has_refund THEN 1 ELSE 0 END) AS refund_count,
         SUM(CASE WHEN is_successful THEN net_revenue_usd ELSE 0 END) AS net_revenue_usd,
-
-        -- Session recovery metrics
-        SUM(CASE WHEN is_lost_payment THEN 1 ELSE 0 END) AS lost_payments,
-        SUM(CASE WHEN is_lost_payment THEN amount_usd ELSE 0 END) AS lost_revenue_usd,
-        SUM(CASE WHEN is_recovered_failure THEN 1 ELSE 0 END) AS recovered_payments,
-        SUM(CASE WHEN is_recovered_failure THEN amount_usd ELSE 0 END) AS recovered_revenue_usd,
 
         -- Failure breakdown
         SUM(CASE WHEN failure_category = 'insufficient_funds' THEN 1 ELSE 0 END) AS failures_insufficient_funds,
@@ -152,12 +163,6 @@ final AS (
             THEN COALESCE(dm.refunded_usd, 0) / dm.gross_revenue_usd
             ELSE NULL
         END AS refund_rate,
-
-        -- Session recovery metrics
-        dm.lost_payments,
-        dm.lost_revenue_usd,
-        dm.recovered_payments,
-        dm.recovered_revenue_usd,
 
         -- Failure breakdown
         dm.failures_insufficient_funds,

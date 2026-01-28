@@ -14,35 +14,37 @@ plugins:
       client_secret: ${STRIPE_API_KEY}
       start_date: '2024-01-01T00:00:00Z'
     select:
-      - "*.*"
+    - '*.*'
   - name: tap-amplitude
     variant: airbyte
     pip_url: git+https://github.com/meltanolabs/tap-airbyte-wrapper.git
     executable: tap-airbyte
     capabilities:
-      - state
-      - catalog
-      - discover
-      - about
-      - stream-maps
+    - state
+    - catalog
+    - discover
+    - about
+    - stream-maps
     settings:
-      - name: airbyte_config.api_key
-        kind: password
-      - name: airbyte_config.secret_key
-        kind: password
-      - name: airbyte_config.start_date
-        kind: date_iso8601
-      - name: airbyte_spec.image
-        value: airbyte/source-amplitude
-      - name: airbyte_spec.tag
-        value: latest
+    - name: airbyte_config.api_key
+      kind: string
+      sensitive: true
+    - name: airbyte_config.secret_key
+      kind: string
+      sensitive: true
+    - name: airbyte_config.start_date
+      kind: date_iso8601
+    - name: airbyte_spec.image
+      value: airbyte/source-amplitude
+    - name: airbyte_spec.tag
+      value: latest
     config:
       airbyte_config:
         api_key: ${AMPLITUDE_API_KEY}
         secret_key: ${AMPLITUDE_SECRET_KEY}
         start_date: '2025-07-01T00:00:00Z'
     select:
-      - "*.*"
+    - '*.*'
   - name: tap-appsflyer-ios
     inherit_from: tap-appsflyer
     config:
@@ -65,9 +67,9 @@ plugins:
     pip_url: -e ./tap-ethoca
     executable: tap-ethoca
     capabilities:
-      - state
-      - catalog
-      - discover
+    - state
+    - catalog
+    - discover
     config:
       consumer_key: ${ETHOCA_CONSUMER_KEY}
       api_key: ${ETHOCA_API_KEY}
@@ -75,29 +77,29 @@ plugins:
       start_date: '2024-01-01T00:00:00Z'
       sandbox: false
     select:
-      - "alerts.*"
+    - alerts.*
   - name: tap-chargeback
     namespace: tap_chargeback
     pip_url: -e ./tap-chargeback
     executable: tap-chargeback
     capabilities:
-      - state
-      - catalog
-      - discover
+    - state
+    - catalog
+    - discover
     config:
       api_key: ${CHARGEBACK_IO_API_KEY}
       api_base_url: https://api.chargeback.io/api/public/v1
       start_date: '2024-01-01T00:00:00Z'
     select:
-      - "chargeback_alerts.*"
+    - chargeback_alerts.*
   - name: tap-funnelfox
     namespace: tap_funnelfox
     pip_url: -e ./tap-funnelfox
     executable: tap-funnelfox
     capabilities:
-      - state
-      - catalog
-      - discover
+    - state
+    - catalog
+    - discover
     config:
       api_key: ${FUNNEL_FOX_API}
       start_date: '2024-01-01T00:00:00Z'
@@ -105,13 +107,15 @@ plugins:
       page_size: 50
       request_timeout: 120
     select:
-      - "funnels.*"
-      - "products.*"
-      - "sessions.*"
-      - "subscriptions.*"
-      - "profiles.*"
-      - "transactions.*"
-      - "session_replies.*"
+    - sessions.*
+    # - funnels.*
+    # - products.*
+    # - subscriptions.*
+    # - profiles.*
+    # - transactions.*
+    # - session_replies.*
+    - sessions.*
+    - sessions.*
   - name: tap-facebook
     variant: meltanolabs
     pip_url: git+https://github.com/MeltanoLabs/tap-facebook.git
@@ -120,29 +124,29 @@ plugins:
       app_id: ${FACEBOOK_APP_ID}
       app_secret: ${FACEBOOK_APP_SECRET}
       access_token: ${FACEBOOK_ACCESS_TOKEN}
-      start_date: '2024-01-01T00:00:00Z'
+      start_date: '2026-01-19T00:00:00Z'
       insights_lookback_window: 7  # Re-fetch last 7 days to capture data corrections
       insight_reports_list:
-        - name: "default"
-          level: "ad"
-          time_increment: 1
-          action_attribution_windows:
-            - "1d_view"
-            - "7d_click"
+      - name: default
+        level: ad
+        time_increment: 1
+        action_attribution_windows:
+        - 1d_view
+        - 7d_click
     select:
       # Core entities
-      - "ads.*"
-      - "adsets.*"
-      - "campaigns.*"
-      - "ad_creatives.*"
-      - "ad_labels.*"
-      - "ad_accounts.*"
-      - "custom_conversions.*"
-      - "custom_audiences.*"
-      - "ad_images.*"
-      - "ad_videos.*"
+    - ads.*
+    - adsets.*
+    - campaigns.*
+    - ad_creatives.*
+    - ad_labels.*
+    - ad_accounts.*
+    - custom_conversions.*
+    - custom_audiences.*
+    - ad_images.*
+    - ad_videos.*
       # Insight reports (daily ad-level statistics)
-      - "adsinsights_default.*"
+    - adsinsights_default.*
   - name: tap-postgres
     variant: meltanolabs
     pip_url: meltanolabs-tap-postgres
@@ -153,72 +157,44 @@ plugins:
       password: ${PG_PROD_PASSWORD}
       database: ${PG_PROD_DBNAME}
       filter_schemas:
-        - public
+      - public
     select:
-      - "public-facebook_ad_accounts.*"
-      - "public-facebook_ad_statistics.*"
-      - "public-facebook_ads.*"
-      - "public-facebook_adsets.*"
-      - "public-facebook_apps.*"
-      - "public-facebook_campaigns.*"
-      - "public-onboarding_replies.*"
+    - public-facebook_ad_accounts.*
+    - public-facebook_ad_statistics.*
+    - public-facebook_ads.*
+    - public-facebook_adsets.*
+    - public-facebook_apps.*
+    - public-facebook_campaigns.*
+    - public-onboarding_replies.*
     metadata:
-      "public-facebook_ad_accounts":
+      public-facebook_ad_accounts:
         replication-method: FULL_TABLE
         key-properties:
-          - id
-      "public-facebook_ad_statistics":
+        - id
+      public-facebook_ad_statistics:
         replication-method: FULL_TABLE
         key-properties:
-          - id
-      "public-facebook_ads":
+        - id
+      public-facebook_ads:
         replication-method: FULL_TABLE
         key-properties:
-          - id
-      "public-facebook_adsets":
+        - id
+      public-facebook_adsets:
         replication-method: FULL_TABLE
         key-properties:
-          - id
-      "public-facebook_apps":
+        - id
+      public-facebook_apps:
         replication-method: FULL_TABLE
         key-properties:
-          - id
-      "public-facebook_campaigns":
+        - id
+      public-facebook_campaigns:
         replication-method: FULL_TABLE
         key-properties:
-          - id
-      "public-onboarding_replies":
+        - id
+      public-onboarding_replies:
         replication-method: FULL_TABLE
         key-properties:
-          - id
-  mappers:
-  - name: meltano-map-transformer
-    variant: meltano
-    pip_url: meltano-map-transform
-    executable: meltano-map-transform
-    mappings:
-    - name: fix-amplitude-types
-      config:
-        stream_maps:
-          events_list:
-            __filter__: "False"
-          "*":
-            __key_properties__: []
-            timeline_hidden: int(record.get('timeline_hidden')) if record.get('timeline_hidden') is not None else record.get('timeline_hidden')
-            user_agent: record.get('user_agent', '').encode('utf-8', errors='surrogateescape').decode('utf-8', errors='replace') if record.get('user_agent') else record.get('user_agent')
-            device_model: record.get('device_model', '').encode('utf-8', errors='surrogateescape').decode('utf-8', errors='replace') if record.get('device_model') else record.get('device_model')
-            device_type: record.get('device_type', '').encode('utf-8', errors='surrogateescape').decode('utf-8', errors='replace') if record.get('device_type') else record.get('device_type')
-            device_family: record.get('device_family', '').encode('utf-8', errors='surrogateescape').decode('utf-8', errors='replace') if record.get('device_family') else record.get('device_family')
-            device_brand: record.get('device_brand', '').encode('utf-8', errors='surrogateescape').decode('utf-8', errors='replace') if record.get('device_brand') else record.get('device_brand')
-            device_manufacturer: record.get('device_manufacturer', '').encode('utf-8', errors='surrogateescape').decode('utf-8', errors='replace') if record.get('device_manufacturer') else record.get('device_manufacturer')
-            os_name: record.get('os_name', '').encode('utf-8', errors='surrogateescape').decode('utf-8', errors='replace') if record.get('os_name') else record.get('os_name')
-            os_version: record.get('os_version', '').encode('utf-8', errors='surrogateescape').decode('utf-8', errors='replace') if record.get('os_version') else record.get('os_version')
-            city: record.get('city', '').encode('utf-8', errors='surrogateescape').decode('utf-8', errors='replace') if record.get('city') else record.get('city')
-            region: record.get('region', '').encode('utf-8', errors='surrogateescape').decode('utf-8', errors='replace') if record.get('region') else record.get('region')
-            country: record.get('country', '').encode('utf-8', errors='surrogateescape').decode('utf-8', errors='replace') if record.get('country') else record.get('country')
-            language: record.get('language', '').encode('utf-8', errors='surrogateescape').decode('utf-8', errors='replace') if record.get('language') else record.get('language')
-            ip_address: record.get('ip_address', '').encode('utf-8', errors='surrogateescape').decode('utf-8', errors='replace') if record.get('ip_address') else record.get('ip_address')
-
+        - id
   loaders:
   - name: target-postgres
     variant: meltanolabs
@@ -239,23 +215,51 @@ plugins:
       load_method: upsert
       primary_keys:
         # Facebook insights - composite key for daily ad metrics
-        adsinsights_default: ["ad_id", "date_start"]
+        adsinsights_default: [ad_id, date_start]
         # Facebook entities - single primary key
-        ads: ["id"]
-        adsets: ["id"]
-        campaigns: ["id"]
-        ad_creatives: ["id"]
-        ad_labels: ["id"]
-        ad_accounts: ["id"]
-        custom_conversions: ["id"]
-        custom_audiences: ["id"]
-        ad_images: ["id"]
-        ad_videos: ["id"]
+        ads: [id]
+        adsets: [id]
+        campaigns: [id]
+        ad_creatives: [id]
+        ad_labels: [id]
+        ad_accounts: [id]
+        custom_conversions: [id]
+        custom_audiences: [id]
+        ad_images: [id]
+        ad_videos: [id]
         # Postgres source tables
-        public-facebook_ad_accounts: ["id"]
-        public-facebook_ad_statistics: ["id"]
-        public-facebook_ads: ["id"]
-        public-facebook_adsets: ["id"]
-        public-facebook_apps: ["id"]
-        public-facebook_campaigns: ["id"]
-        public-onboarding_replies: ["id"] 
+        public-facebook_ad_accounts: [id]
+        public-facebook_ad_statistics: [id]
+        public-facebook_ads: [id]
+        public-facebook_adsets: [id]
+        public-facebook_apps: [id]
+        public-facebook_campaigns: [id]
+        public-onboarding_replies: [id]
+  mappers:
+  - name: meltano-map-transformer
+    variant: meltano
+    pip_url: meltano-map-transform
+    executable: meltano-map-transform
+    mappings:
+    - name: fix-amplitude-types
+      config:
+        stream_maps:
+          events_list:
+            __filter__: 'False'
+          '*':
+            __key_properties__: []
+            timeline_hidden: int(record.get('timeline_hidden')) if record.get('timeline_hidden') is not None else record.get('timeline_hidden')
+            user_agent: record.get('user_agent', '').encode('utf-8', errors='surrogateescape').decode('utf-8', errors='replace') if record.get('user_agent') else record.get('user_agent')
+            device_model: record.get('device_model', '').encode('utf-8', errors='surrogateescape').decode('utf-8', errors='replace') if record.get('device_model') else record.get('device_model')
+            device_type: record.get('device_type', '').encode('utf-8', errors='surrogateescape').decode('utf-8', errors='replace') if record.get('device_type') else record.get('device_type')
+            device_family: record.get('device_family', '').encode('utf-8', errors='surrogateescape').decode('utf-8', errors='replace') if record.get('device_family') else record.get('device_family')
+            device_brand: record.get('device_brand', '').encode('utf-8', errors='surrogateescape').decode('utf-8', errors='replace') if record.get('device_brand') else record.get('device_brand')
+            device_manufacturer: record.get('device_manufacturer', '').encode('utf-8', errors='surrogateescape').decode('utf-8', errors='replace') if record.get('device_manufacturer') else record.get('device_manufacturer')
+            os_name: record.get('os_name', '').encode('utf-8', errors='surrogateescape').decode('utf-8', errors='replace') if record.get('os_name') else record.get('os_name')
+            os_version: record.get('os_version', '').encode('utf-8', errors='surrogateescape').decode('utf-8', errors='replace') if record.get('os_version') else record.get('os_version')
+            city: record.get('city', '').encode('utf-8', errors='surrogateescape').decode('utf-8', errors='replace') if record.get('city') else record.get('city')
+            region: record.get('region', '').encode('utf-8', errors='surrogateescape').decode('utf-8', errors='replace') if record.get('region') else record.get('region')
+            country: record.get('country', '').encode('utf-8', errors='surrogateescape').decode('utf-8', errors='replace') if record.get('country') else record.get('country')
+            language: record.get('language', '').encode('utf-8', errors='surrogateescape').decode('utf-8', errors='replace') if record.get('language') else record.get('language')
+            ip_address: record.get('ip_address', '').encode('utf-8', errors='surrogateescape').decode('utf-8', errors='replace') if record.get('ip_address') else record.get('ip_address')
+

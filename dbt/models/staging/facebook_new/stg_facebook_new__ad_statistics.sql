@@ -1,6 +1,6 @@
 {{
     config(
-        materialized='view'
+        materialized='table'
     )
 }}
 
@@ -20,41 +20,25 @@ WITH source AS (
 actions_extracted AS (
     SELECT
         s.*,
-        -- Purchases (sum of all purchase-related actions)
+        -- Purchases (use single action type - all purchase types are duplicates with same value)
         (
             SELECT COALESCE(SUM((elem->>'value')::numeric), 0)
             FROM unnest(s.actions) AS elem
-            WHERE elem->>'action_type' IN (
-                'purchase',
-                'omni_purchase',
-                'offsite_conversion.fb_pixel_purchase',
-                'web_in_store_purchase',
-                'onsite_web_purchase',
-                'onsite_web_app_purchase'
-            )
+            WHERE elem->>'action_type' = 'purchase'
         ) AS purchases_extracted,
 
-        -- Leads
+        -- Leads (use single action type - all lead types are duplicates with same value)
         (
             SELECT COALESCE(SUM((elem->>'value')::numeric), 0)
             FROM unnest(s.actions) AS elem
-            WHERE elem->>'action_type' IN (
-                'lead',
-                'offsite_conversion.fb_pixel_lead',
-                'onsite_web_lead'
-            )
+            WHERE elem->>'action_type' = 'lead'
         ) AS leads_extracted,
 
-        -- Registrations
+        -- Registrations (use single action type - all registration types are duplicates with same value)
         (
             SELECT COALESCE(SUM((elem->>'value')::numeric), 0)
             FROM unnest(s.actions) AS elem
-            WHERE elem->>'action_type' IN (
-                'complete_registration',
-                'omni_complete_registration',
-                'offsite_conversion.fb_pixel_complete_registration',
-                'offsite_complete_registration_add_meta_leads'
-            )
+            WHERE elem->>'action_type' = 'complete_registration'
         ) AS registrations_extracted,
 
         -- Video 3-sec plays

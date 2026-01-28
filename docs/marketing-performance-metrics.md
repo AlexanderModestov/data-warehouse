@@ -120,22 +120,6 @@ These metrics use our own attribution logic from `mart_marketing_attribution`.
 | `roas` | `revenue_usd / spend_usd` | Return On Ad Spend - revenue generated per dollar spent |
 | `arpu` | `revenue_usd / attributed_conversions` | Average Revenue Per User |
 | `cac` | `spend_usd / attributed_conversions` | Customer Acquisition Cost |
-| `roi_6m` | `(ARPU * 6 - CAC) / CAC` | Projected 6-month ROI assuming ARPU as monthly value |
-| `roi_12m` | `(ARPU * 12 - CAC) / CAC` | Projected 12-month ROI assuming ARPU as monthly value |
-| `ltv_12m` | `ARPU * 12` | Projected 12-month Lifetime Value |
-
-### ROI Calculation Details
-
-```
-ROI_6m  = (ARPU * 6 - CAC) / CAC
-ROI_12m = (ARPU * 12 - CAC) / CAC
-LTV_12m = ARPU * 12
-```
-
-Where:
-- **ARPU** = revenue_usd / attributed_conversions
-- **CAC** = spend_usd / attributed_conversions
-
 ---
 
 ## Data Sources

@@ -16,7 +16,6 @@ __pycache__/
 meltano/.meltano/
 meltano/output/
 meltano/amplitude_*.json
-dashboard
 
 # dbt artifacts (regenerated on each run)
 dbt/target/
@@ -27,6 +26,8 @@ commands.txt
 
 # Git worktrees
 .worktrees/
+dashboard/.worktrees/
+dashboard
 
 # Temporary Claude files
 tmpclaude-*

@@ -41,16 +41,18 @@ actions_extracted AS (
             WHERE elem->>'action_type' = 'complete_registration'
         ) AS registrations_extracted,
 
-        -- Video 3-sec plays
+        -- Video 3-sec plays (from actions where action_type = 'video_view')
         (
             SELECT COALESCE(SUM((elem->>'value')::numeric), 0)
-            FROM unnest(s.video_play_actions) AS elem
+            FROM unnest(s.actions) AS elem
+            WHERE elem->>'action_type' = 'video_view'
         ) AS video_3_sec_plays_extracted,
 
-        -- Thru-plays (video watched to completion or 15+ sec)
+        -- Thru-plays (video_15_sec_watched_actions is equivalent to video_thruplay_watched_actions)
         (
             SELECT COALESCE(SUM((elem->>'value')::numeric), 0)
             FROM unnest(s.video_15_sec_watched_actions) AS elem
+            WHERE elem->>'action_type' = 'video_view'
         ) AS thru_plays_extracted
 
     FROM source s

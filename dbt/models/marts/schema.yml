@@ -688,20 +688,22 @@ models:
       Daily risk metrics including fraud warnings, chargebacks, and refunds.
       Grain: One row per day.
 
+      Data Source: mart_master_charges (single source of truth for payment analytics)
+
       Use cases:
       - Daily Visa/Mastercard program compliance monitoring
       - VAMP (Visa Acquirer Monitoring Program) metrics tracking
       - Chargeback rate tracking by card network
-      - Early Fraud Warning (EFW) monitoring
+      - Early Fraud Warning (EFW) proxy monitoring
       - RDR (Rapid Dispute Resolution) tracking
       - Refund volume analysis
 
       Key metrics:
-      - EFW count/amount: Early Fraud Warnings received
+      - EFW count/amount: Proxy using high-risk + fraud declined (actual EFW data not available)
       - Chargeback counts: By Mastercard, Visa (excl RDR), Other
       - Chargeback rates: Disputes today / successful txns previous 30 days (rolling)
       - VAMP: EFW count + Visa chargebacks (Visa's fraud monitoring threshold)
-      - RDR: Visa disputes resolved through Rapid Dispute Resolution
+      - RDR: Placeholder (actual RDR data would come from disputes table)
       - Refunds: Total refund count and amount
     columns:
       - name: date
@@ -711,12 +713,12 @@ models:
           - not_null
 
       - name: efw_count
-        description: Count of Early Fraud Warnings received
+        description: EFW proxy count (high-risk + fraud declined, actual EFW data not available)
         tests:
           - not_null
 
       - name: efw_amount_usd
-        description: Total USD amount of charges with EFW
+        description: EFW proxy amount USD (high-risk + fraud declined amounts)
         tests:
           - not_null
 
@@ -794,6 +796,9 @@ models:
         tests:
           - not_null
 
+      - name: refund_rate
+        description: Refund rate (refund_amount_usd / successful_amount_usd)
+
       - name: mc_successful_count
         description: Count of successful Mastercard transactions (for reference)
         tests:
@@ -806,6 +811,61 @@ models:
 
       - name: total_successful_count
         description: Count of all successful transactions (for reference)
+        tests:
+          - not_null
+
+      - name: successful_amount_usd
+        description: Total USD amount of successful transactions (for reference)
+        tests:
+          - not_null
+
+      - name: efw_proxy_count
+        description: EFW proxy count (alias for efw_count for dashboard compatibility)
+        tests:
+          - not_null
+
+      - name: efw_proxy_amount_usd
+        description: EFW proxy amount USD (alias for efw_amount_usd for dashboard compatibility)
+        tests:
+          - not_null
+
+      - name: elevated_risk_count
+        description: Count of transactions with Stripe Radar 'elevated' risk level
+        tests:
+          - not_null
+
+      - name: highest_risk_count
+        description: Count of transactions with Stripe Radar 'highest' risk level
+        tests:
+          - not_null
+
+      - name: high_risk_count
+        description: Count of high-risk transactions (elevated + highest risk levels)
+        tests:
+          - not_null
+
+      - name: high_risk_amount_usd
+        description: USD amount of high-risk transactions
+        tests:
+          - not_null
+
+      - name: blocked_count
+        description: Count of payments blocked by Stripe Radar
+        tests:
+          - not_null
+
+      - name: fraud_declined_count
+        description: Count of payments declined with fraud-related failure codes
+        tests:
+          - not_null
+
+      - name: fraud_declined_amount_usd
+        description: USD amount of fraud-declined payments
+        tests:
+          - not_null
+
+      - name: avg_risk_score
+        description: Average Stripe Radar risk score (0-100)
         tests:
           - not_null
 
@@ -1207,8 +1267,20 @@ models:
       - name: subscription_price_usd
         description: FunnelFox subscription price in USD
 
+      - name: product_id
+        description: Stripe product ID from products catalog (via subscription_items)
+
       - name: product_name
         description: Stripe product name from products catalog
+
+      - name: product_description
+        description: Stripe product description
+
+      - name: product_type
+        description: Stripe product type (service, good)
+
+      - name: product_active
+        description: Whether the Stripe product is active
 
       - name: funnel_id
         description: Funnel ID (nullable)
